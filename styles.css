@@ -1,0 +1,641 @@
+/* ===== 学习项目进度看板 ===== */
+
+.progress-dashboard {
+	padding: 20px 28px;
+	max-width: 1100px;
+	margin: 0 auto;
+}
+
+/* 标题 */
+.pd-header {
+	margin-bottom: 16px;
+}
+
+.pd-header h2 {
+	margin: 0;
+	font-size: 22px;
+	font-weight: 700;
+	color: var(--text-normal);
+}
+
+/* 统计栏 */
+.pd-stats {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+	margin-bottom: 16px;
+}
+
+.pd-stat-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 6px 14px;
+	border-radius: 8px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	min-width: 64px;
+}
+
+.pd-stat-label {
+	font-size: 11px;
+	color: var(--text-faint);
+	margin-bottom: 1px;
+}
+
+.pd-stat-value {
+	font-size: 18px;
+	font-weight: 700;
+}
+
+/* 工具栏 */
+.pd-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 16px;
+}
+
+.pd-sort-label {
+	font-size: 13px;
+	color: var(--text-faint);
+}
+
+.pd-sort-select {
+	padding: 3px 8px;
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.pd-refresh-btn {
+	margin-left: auto;
+	padding: 3px 12px;
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	font-size: 13px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.pd-search-input {
+	padding: 4px 10px;
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	font-size: 13px;
+	width: 160px;
+	outline: none;
+	transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pd-search-input:focus {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.15);
+}
+
+.pd-search-input::placeholder {
+	color: var(--text-faint);
+}
+
+.pd-refresh-btn:hover {
+	background: var(--background-modifier-hover);
+}
+
+.pd-add-btn {
+	padding: 3px 12px;
+	border-radius: 6px;
+	border: 1px solid var(--interactive-accent);
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 13px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.pd-add-btn:hover {
+	opacity: 0.9;
+}
+
+.pd-reset-btn {
+	padding: 3px 10px;
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	color: var(--text-faint);
+	font-size: 12px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.pd-reset-btn:hover {
+	color: var(--text-normal);
+	border-color: var(--text-faint);
+}
+
+/* 弹窗 */
+.pd-modal {
+	max-width: 480px;
+}
+
+.pd-modal h3 {
+	margin: 0 0 16px 0;
+}
+
+.pd-modal-btns {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	margin-top: 20px;
+}
+
+/* 分类区块 */
+.pd-category-section {
+	margin-bottom: 20px;
+}
+
+.pd-category-section.pd-category-pinned {
+	padding: 8px 12px;
+	background: var(--background-secondary);
+	border-radius: 10px;
+	border: 1px solid rgba(var(--interactive-accent-rgb), 0.3);
+}
+
+.pd-category-section.pd-category-pinned .pd-category-header {
+	border-bottom-color: rgba(var(--interactive-accent-rgb), 0.3);
+}
+
+.pd-category-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 8px;
+	padding-bottom: 5px;
+	border-bottom: 2px solid var(--background-modifier-border);
+}
+
+.pd-category-title {
+	font-size: 15px;
+	font-weight: 700;
+	color: var(--text-normal);
+}
+
+.pd-cat-pin-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	border-radius: 4px;
+	color: var(--text-faint);
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.pd-cat-pin-btn:hover {
+	color: var(--interactive-accent);
+	background: rgba(var(--interactive-accent-rgb), 0.1);
+}
+
+.pd-cat-pin-btn.pd-pin-active {
+	color: var(--interactive-accent);
+}
+
+.pd-cat-pin-btn svg {
+	display: block;
+}
+
+.pd-category-stats {
+	font-size: 12px;
+	color: var(--text-faint);
+	margin-left: auto;
+}
+
+/* 进度条列表 */
+.pd-list {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+/* ===== 三栏布局 ===== */
+.pd-row {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	padding: 8px 12px;
+	border-radius: 8px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pd-row:hover {
+	border-color: var(--background-modifier-border-hover);
+}
+
+/* 子技能行 */
+.pd-child-row {
+	margin-left: 28px;
+	padding: 6px 10px;
+	background: var(--background-secondary);
+	border-radius: 6px;
+	gap: 12px;
+}
+
+.pd-children {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-top: 4px;
+}
+
+/* 左栏：技能名 */
+.pd-col-name {
+	flex: 0 0 220px;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.pd-skill-title-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.pd-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	color: var(--text-faint);
+	cursor: pointer;
+	flex-shrink: 0;
+	border-radius: 4px;
+	transition: all 0.15s ease;
+}
+
+.pd-toggle:hover {
+	color: var(--interactive-accent);
+	background: rgba(var(--interactive-accent-rgb), 0.1);
+}
+
+.pd-toggle svg {
+	display: block;
+}
+
+.pd-toggle-spacer {
+	display: inline-block;
+	width: 22px;
+	height: 22px;
+	flex-shrink: 0;
+}
+
+.pd-skill-title {
+	font-size: 17px;
+	font-weight: 600;
+	color: var(--text-normal);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pd-skill-desc {
+	font-size: 10px;
+	color: var(--text-faint);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	margin-top: 1px;
+}
+
+/* 中栏：进度条 */
+.pd-col-bar {
+	flex: 1;
+	min-width: 0;
+	max-width: 300px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.pd-bar-track {
+	flex: 1;
+	max-width: 180px;
+	height: 12px;
+	border-radius: 6px;
+	background: var(--background-modifier-border);
+	overflow: hidden;
+	position: relative;
+	cursor: pointer;
+}
+
+.pd-bar-fill {
+	height: 100%;
+	border-radius: 8px;
+	transition: width 0.1s linear;
+	position: relative;
+}
+
+.pd-bar-fill::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: linear-gradient(
+		180deg,
+		rgba(255, 255, 255, 0.2) 0%,
+		transparent 50%,
+		rgba(0, 0, 0, 0.08) 100%
+	);
+	border-radius: 8px;
+}
+
+/* 拖动手柄 */
+.pd-bar-handle {
+	position: absolute;
+	top: 50%;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: var(--background-primary);
+	border: 2px solid var(--interactive-accent);
+	transform: translate(-50%, -50%);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+	cursor: grab;
+	transition: transform 0.1s ease;
+	z-index: 2;
+}
+
+.pd-bar-handle:hover {
+	transform: translate(-50%, -50%) scale(1.3);
+}
+
+.pd-bar-handle:active {
+	cursor: grabbing;
+}
+
+.pd-pct-inline {
+	font-size: 14px;
+	font-weight: 700;
+	min-width: 42px;
+	text-align: right;
+	flex-shrink: 0;
+}
+
+/* 右栏：笔记列表 */
+.pd-col-notes {
+	flex: 0 0 auto;
+	min-width: 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	max-width: 400px;
+}
+
+/* 笔记标签 */
+.pd-note-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	font-size: 12px;
+	font-weight: 500;
+	padding: 2px 4px 2px 6px;
+	border-radius: 6px;
+	background: rgba(var(--interactive-accent-rgb), 0.12);
+	color: var(--interactive-accent);
+	cursor: pointer;
+	transition: all 0.15s ease;
+	max-width: 140px;
+	line-height: 1.4;
+}
+
+.pd-note-chip:hover {
+	background: rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.pd-note-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 110px;
+}
+
+.pd-note-remove {
+	display: none;
+	align-items: center;
+	justify-content: center;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	color: var(--text-faint);
+	flex-shrink: 0;
+	transition: all 0.15s ease;
+}
+
+.pd-note-chip:hover .pd-note-remove {
+	display: inline-flex;
+}
+
+.pd-note-remove:hover {
+	background: rgba(255, 82, 82, 0.2);
+	color: #ff5252;
+}
+
+/* 统一操作按钮容器 - 始终在右侧对齐 */
+.pd-action-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	margin-left: auto;
+	flex-shrink: 0;
+}
+
+/* 统一按钮基础样式 */
+.pd-create-note-btn,
+.pd-attach-btn,
+.pd-date-btn,
+.pd-del-btn,
+.pd-add-child-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	color: var(--text-faint);
+	cursor: pointer;
+	flex-shrink: 0;
+	transition: all 0.15s ease;
+	line-height: 1;
+	padding: 0;
+}
+
+.pd-create-note-btn:hover,
+.pd-attach-btn:hover,
+.pd-date-btn:hover,
+.pd-add-child-btn:hover {
+	border-color: var(--interactive-accent);
+	color: var(--interactive-accent);
+	background: rgba(var(--interactive-accent-rgb), 0.1);
+}
+
+.pd-create-note-btn svg,
+.pd-attach-btn svg,
+.pd-date-btn svg,
+.pd-add-child-btn svg {
+	display: block;
+	width: 15px;
+	height: 15px;
+}
+
+/* 删除按钮特殊样式 */
+.pd-del-btn {
+	border-radius: 50%;
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--text-faint);
+}
+
+.pd-del-btn svg {
+	width: 14px;
+	height: 14px;
+}
+
+.pd-del-btn:hover {
+	background: rgba(255, 82, 82, 0.15);
+	border-color: rgba(255, 82, 82, 0.3);
+	color: #ff5252;
+}
+
+/* 日期按钮 */
+.pd-date-btn {
+	gap: 2px;
+	padding: 0 3px;
+	width: auto;
+	min-width: 24px;
+}
+
+.pd-date-text {
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--text-muted);
+	line-height: 1;
+	white-space: nowrap;
+}
+
+/* 选择笔记弹窗 */
+.pd-pick-search {
+	outline: none;
+}
+
+.pd-pick-list {
+	border-radius: 6px;
+}
+
+.pd-pick-item {
+	border-bottom-color: var(--background-modifier-border);
+}
+
+.pd-pick-item:last-child {
+	border-bottom: none;
+}
+
+.pd-pick-empty {
+	padding: 20px;
+	text-align: center;
+	color: var(--text-faint);
+	font-size: 13px;
+}
+
+/* 进度等级标签 */
+.pd-level {
+	font-size: 10px;
+	font-weight: 600;
+	padding: 2px 7px;
+	border-radius: 6px;
+	flex-shrink: 0;
+	min-width: 44px;
+	text-align: center;
+}
+
+.pd-level-done {
+	background: rgba(0, 230, 118, 0.15);
+	color: #00c853;
+}
+
+.pd-level-high {
+	background: rgba(0, 176, 255, 0.15);
+	color: #0091ea;
+}
+
+.pd-level-mid {
+	background: rgba(255, 193, 7, 0.15);
+	color: #ffa000;
+}
+
+.pd-level-low {
+	background: rgba(255, 145, 0, 0.15);
+	color: #e65100;
+}
+
+.pd-level-none {
+	background: var(--background-modifier-border);
+	color: var(--text-faint);
+}
+
+/* 响应式 */
+@media (max-width: 900px) {
+	.progress-dashboard {
+		padding: 14px;
+	}
+
+	.pd-row {
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	.pd-col-name {
+		flex: 0 0 100%;
+	}
+
+	.pd-col-bar {
+		flex: 1 1 100%;
+	}
+
+	.pd-col-notes {
+		flex: 0 0 100%;
+	}
+
+	.pd-child-row {
+		margin-left: 16px;
+	}
+
+	.pd-stat-item {
+		min-width: 56px;
+		padding: 5px 8px;
+	}
+
+	.pd-stat-value {
+		font-size: 15px;
+	}
+
+	.pd-category-header {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 3px;
+	}
+}
