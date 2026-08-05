@@ -6,7 +6,6 @@ import {
 	TFile,
 	Notice,
 	Modal,
-	Setting,
 } from "obsidian";
 
 const VIEW_TYPE_PROGRESS = "progress-dashboard-view";
@@ -47,11 +46,15 @@ interface PluginData {
 	manualProgress: Record<string, number>;
 	customSkills: CustomSkill[];
 	attachedNotes: Record<string, string[]>;
-	excludedNotes: Record<string, string[]>;  /* 被用户主动删除的笔记，扫描时跳过 */
+	excludedNotes: Record<string, string[]>;
 	deletedSkills: string[];
 	pinnedCategories: string[];
 	skillStartDates: Record<string, string>;
 	skillEndDates: Record<string, string>;
+}
+
+interface VaultLike {
+	getMarkdownFiles(): TFile[];
 }
 
 const DEFAULT_DATA: PluginData = {
@@ -174,9 +177,80 @@ function getSkillKey(parent: string | null, name: string): string {
 	return parent ? `${parent}/${name}` : name;
 }
 
+/* ===== SVG 图标创建辅助函数（使用 createElementNS，安全） ===== */
+interface SvgPart {
+	tag: string;
+	attrs: Record<string, string>;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function createIcon(parent: HTMLElement, parts: SvgPart[], size = 16): SVGElement {
+	const svg = document.createElementNS(SVG_NS, "svg");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("width", String(size));
+	svg.setAttribute("height", String(size));
+	svg.setAttribute("fill", "none");
+	svg.setAttribute("stroke", "currentColor");
+	svg.setAttribute("stroke-width", "2");
+	svg.setAttribute("stroke-linecap", "round");
+	svg.setAttribute("stroke-linejoin", "round");
+	for (const part of parts) {
+		const el = document.createElementNS(SVG_NS, part.tag);
+		for (const [k, v] of Object.entries(part.attrs)) {
+			el.setAttribute(k, v);
+		}
+		svg.appendChild(el);
+	}
+	parent.appendChild(svg);
+	return svg;
+}
+
+const ICONS: Record<string, SvgPart[]> = {
+	chevronDown: [{ tag: "polyline", attrs: { points: "6 9 12 15 18 9" } }],
+	chevronRight: [{ tag: "polyline", attrs: { points: "9 6 15 12 9 18" } }],
+	close: [
+		{ tag: "line", attrs: { x1: "18", y1: "6", x2: "6", y2: "18" } },
+		{ tag: "line", attrs: { x1: "6", y1: "6", x2: "18", y2: "18" } },
+	],
+	pin: [
+		{ tag: "path", attrs: { d: "M12 17v5" } },
+		{ tag: "path", attrs: { d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" } },
+	],
+	plus: [
+		{ tag: "line", attrs: { x1: "12", y1: "5", x2: "12", y2: "19" } },
+		{ tag: "line", attrs: { x1: "5", y1: "12", x2: "19", y2: "12" } },
+	],
+	createNote: [
+		{ tag: "path", attrs: { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" } },
+		{ tag: "polyline", attrs: { points: "14 2 14 8 20 8" } },
+		{ tag: "line", attrs: { x1: "12", y1: "18", x2: "12", y2: "12" } },
+		{ tag: "line", attrs: { x1: "9", y1: "15", x2: "15", y2: "15" } },
+	],
+	attach: [
+		{ tag: "path", attrs: { d: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" } },
+	],
+	clock: [
+		{ tag: "circle", attrs: { cx: "12", cy: "12", r: "10" } },
+		{ tag: "polyline", attrs: { points: "12 6 12 12 16 14" } },
+	],
+	checkCircle: [
+		{ tag: "path", attrs: { d: "M22 11.08V12a10 10 0 1 1-5.93-9.14" } },
+		{ tag: "polyline", attrs: { points: "22 4 12 14.01 9 11.01" } },
+	],
+	trash: [
+		{ tag: "polyline", attrs: { points: "3 6 5 6 21 6" } },
+		{ tag: "path", attrs: { d: "M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" } },
+		{ tag: "path", attrs: { d: "M10 11v6" } },
+		{ tag: "path", attrs: { d: "M14 11v6" } },
+		{ tag: "path", attrs: { d: "M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" } },
+	],
+};
+
 /* ===== 插件主体 ===== */
 export default class ProgressDashboardPlugin extends Plugin {
 	data: PluginData = DEFAULT_DATA;
+	viewCleanup: Array<() => void> = [];
 
 	async onload() {
 		await this.loadSettings();
@@ -187,8 +261,8 @@ export default class ProgressDashboardPlugin extends Plugin {
 		);
 
 		this.addCommand({
-			id: "open-progress-dashboard",
-			name: "打开学习项目进度看板",
+			id: "open-view",
+			name: "打开看板",
 			callback: () => this.activateView(),
 		});
 
@@ -202,7 +276,7 @@ export default class ProgressDashboardPlugin extends Plugin {
 	async loadSettings() {
 		const loaded = await this.loadData();
 		this.data = Object.assign({}, DEFAULT_DATA, loaded);
-		
+
 		/* 数据清理：去除重复的自定义技能 */
 		const seenNames = new Set<string>();
 		const uniqueCustomSkills: CustomSkill[] = [];
@@ -213,7 +287,7 @@ export default class ProgressDashboardPlugin extends Plugin {
 			uniqueCustomSkills.push(cs);
 		}
 		this.data.customSkills = uniqueCustomSkills;
-		
+
 		/* 数据清理：去除空的字段 */
 		if (!this.data.manualProgress) this.data.manualProgress = {};
 		if (!this.data.customSkills) this.data.customSkills = [];
@@ -223,17 +297,19 @@ export default class ProgressDashboardPlugin extends Plugin {
 		if (!this.data.pinnedCategories) this.data.pinnedCategories = [];
 		if (!this.data.skillStartDates) this.data.skillStartDates = {};
 		if (!this.data.skillEndDates) this.data.skillEndDates = {};
-		
+
 		/* 数据迁移：从旧的 skillDates 迁移到新的 skillStartDates */
-		if ((this.data as any).skillDates) {
-			for (const [k, v] of Object.entries((this.data as any).skillDates)) {
+		const loadedData = loaded as Record<string, unknown>;
+		if (loadedData && loadedData["skillDates"] && typeof loadedData["skillDates"] === "object") {
+			const oldDates = loadedData["skillDates"] as Record<string, string>;
+			for (const [k, v] of Object.entries(oldDates)) {
 				if (v && !this.data.skillStartDates[k]) {
-					this.data.skillStartDates[k] = v as string;
+					this.data.skillStartDates[k] = v;
 				}
 			}
-			delete (this.data as any).skillDates;
+			delete (loadedData as Record<string, unknown>)["skillDates"];
 		}
-		
+
 		/* 数据清理：去除重复的置顶分类 */
 		const uniquePinned: string[] = [];
 		const seenCats = new Set<string>();
@@ -244,7 +320,7 @@ export default class ProgressDashboardPlugin extends Plugin {
 			}
 		}
 		this.data.pinnedCategories = uniquePinned;
-		
+
 		await this.saveSettings();
 	}
 
@@ -297,12 +373,12 @@ class ProgressDashboardView extends ItemView {
 
 	async onClose() {
 		/* 清理拖动事件监听器 */
-		const cleanup = (this as any)._viewCleanup;
+		const cleanup = this.plugin.viewCleanup;
 		if (cleanup && Array.isArray(cleanup)) {
 			for (const fn of cleanup) {
 				try { fn(); } catch (e) { /* ignore */ }
 			}
-			(this as any)._viewCleanup = [];
+			this.plugin.viewCleanup = [];
 		}
 	}
 
@@ -343,12 +419,12 @@ class ProgressDashboardView extends ItemView {
 		const flatEntries = this.flattenEntries();
 		const stats = this.calcStats(flatEntries);
 		const statsBar = container.createDiv("pd-stats");
-		this.renderStat(statsBar, "总技能", String(stats.count), "var(--text-normal)");
-		this.renderStat(statsBar, "平均进度", stats.avg + "%", this.getColorByProgress(stats.avg));
-		this.renderStat(statsBar, "已完成", String(stats.completed), "#00e676");
-		this.renderStat(statsBar, "进行中", String(stats.inProgress), "#00b0ff");
-		this.renderStat(statsBar, "刚起步", String(stats.started), "#ff9100");
-		this.renderStat(statsBar, "未开始", String(stats.notStarted), "var(--text-faint)");
+		this.renderStat(statsBar, "总技能", String(stats.count), "pd-stat-color-normal");
+		this.renderStat(statsBar, "平均进度", stats.avg + "%", this.getColorClassByProgress(stats.avg));
+		this.renderStat(statsBar, "已完成", String(stats.completed), "pd-stat-color-done");
+		this.renderStat(statsBar, "进行中", String(stats.inProgress), "pd-stat-color-high");
+		this.renderStat(statsBar, "刚起步", String(stats.started), "pd-stat-color-low");
+		this.renderStat(statsBar, "未开始", String(stats.notStarted), "pd-stat-color-faint");
 
 		const toolbar = container.createDiv("pd-toolbar");
 		toolbar.createEl("span", { cls: "pd-sort-label", text: "排序：" });
@@ -381,18 +457,13 @@ class ProgressDashboardView extends ItemView {
 		const addBtn = toolbar.createEl("button", { cls: "pd-add-btn", text: "+ 添加技能" });
 		addBtn.addEventListener("click", () => {
 			new AddSkillModal(this.app, (name, desc, category) => {
-				console.log("[ProgressDashboard] 添加技能:", { name, desc, category });
-				console.log("[ProgressDashboard] 当前 entries:", this.entries.map(e => e.name));
-				console.log("[ProgressDashboard] customSkills:", this.plugin.data.customSkills);
-				console.log("[ProgressDashboard] deletedSkills:", this.plugin.data.deletedSkills);
-				
 				const exists = this.entries.some((e) => e.name === name && !e.parentName);
 				if (exists) {
 					new Notice("该技能已存在：" + name);
 					return;
 				}
 				this.plugin.data.customSkills.push({ name, desc, category });
-				
+
 				/* 如果之前删除过同名技能，从 deletedSkills 中移除 */
 				const skillKey = getSkillKey(null, name);
 				if (this.plugin.data.deletedSkills.includes(skillKey)) {
@@ -400,9 +471,8 @@ class ProgressDashboardView extends ItemView {
 						(k) => k !== skillKey
 					);
 				}
-				
-				this.plugin.saveSettings();
-				console.log("[ProgressDashboard] 保存后 customSkills:", this.plugin.data.customSkills);
+
+				this.plugin.saveSettings().catch((err: unknown) => { void err; });
 				this.renderView();
 				new Notice("已添加技能：" + name);
 			}).open();
@@ -421,7 +491,7 @@ class ProgressDashboardView extends ItemView {
 				this.plugin.data.pinnedCategories = [];
 				this.plugin.data.skillStartDates = {};
 				this.plugin.data.skillEndDates = {};
-				this.plugin.saveSettings();
+				this.plugin.saveSettings().catch((err: unknown) => { void err; });
 				this.renderView();
 				new Notice("已重置所有数据");
 			}).open();
@@ -453,14 +523,14 @@ class ProgressDashboardView extends ItemView {
 			const isCatPinned = pinnedCats.has(cat.category);
 			const catPinBtn = catHeader.createEl("span", { cls: "pd-cat-pin-btn" + (isCatPinned ? " pd-pin-active" : "") });
 			catPinBtn.title = isCatPinned ? "取消置顶分类" : "置顶分类";
-			catPinBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+			createIcon(catPinBtn, ICONS.pin, 14);
 			catPinBtn.addEventListener("click", () => {
 				if (isCatPinned) {
 					this.plugin.data.pinnedCategories = this.plugin.data.pinnedCategories.filter((c) => c !== cat.category);
 				} else {
 					this.plugin.data.pinnedCategories.push(cat.category);
 				}
-				this.plugin.saveSettings();
+				this.plugin.saveSettings().catch((err: unknown) => { void err; });
 				this.renderView();
 			});
 
@@ -489,18 +559,17 @@ class ProgressDashboardView extends ItemView {
 		return result;
 	}
 
-	private renderStat(parent: HTMLElement, label: string, value: string, color: string) {
+	private renderStat(parent: HTMLElement, label: string, value: string, colorClass: string) {
 		const item = parent.createDiv("pd-stat-item");
 		item.createEl("span", { cls: "pd-stat-label", text: label });
-		const val = item.createEl("span", { cls: "pd-stat-value", text: value });
-		val.style.color = color;
+		const val = item.createEl("span", { cls: "pd-stat-value " + colorClass, text: value });
+		return val;
 	}
 
 	private renderSkillRow(parent: HTMLElement, entry: SkillEntry, depth: number) {
 		const row = parent.createDiv("pd-row");
 		if (depth > 0) row.addClass("pd-child-row");
 		const skillKey = getSkillKey(entry.parentName, entry.name);
-		/* 添加 data-skill-key 属性，便于 refreshParentUI 查找 */
 		row.setAttribute("data-skill-key", skillKey);
 		if (!entry.parentName) {
 			row.setAttribute("data-is-parent", "true");
@@ -512,9 +581,7 @@ class ProgressDashboardView extends ItemView {
 		if (entry.children.length > 0) {
 			const toggle = titleRow.createEl("span", { cls: "pd-toggle" });
 			const isExpanded = this.expandedSkills.has(getSkillKey(entry.parentName, entry.name));
-			toggle.innerHTML = isExpanded
-				? `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`
-				: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`;
+			createIcon(toggle, isExpanded ? ICONS.chevronDown : ICONS.chevronRight, 18);
 			toggle.addEventListener("click", (e) => {
 				e.stopPropagation();
 				const key = getSkillKey(entry.parentName, entry.name);
@@ -536,17 +603,15 @@ class ProgressDashboardView extends ItemView {
 		const barFill = barTrack.createDiv("pd-bar-fill");
 		const pct = entry.progress;
 		barFill.style.width = pct + "%";
-		barFill.style.background = this.getGradientByProgress(pct);
+		barFill.addClass(this.getFillClassByProgress(pct));
 		const handle = barTrack.createDiv("pd-bar-handle");
 		handle.style.left = pct + "%";
 
-		/* 先创建显示元素，避免在 updateProgress 中引用未定义的变量 */
 		const pctEl = colBar.createDiv("pd-pct-inline");
 		pctEl.setText(pct + "%");
-		pctEl.style.color = this.getColorByProgress(pct);
+		pctEl.addClass(this.getColorClassByProgress(pct));
 
-		const levelBadge = colBar.createEl("span", { cls: "pd-level", text: this.getLevelText(pct) });
-		levelBadge.className = "pd-level " + this.getLevelClass(pct);
+		const levelBadge = colBar.createEl("span", { cls: "pd-level " + this.getLevelClass(pct), text: this.getLevelText(pct) });
 
 		/* 同步更新 UI（拖动过程中调用，不做异步操作） */
 		const updateUI = (clientX: number): number => {
@@ -556,9 +621,10 @@ class ProgressDashboardView extends ItemView {
 			ratio = Math.max(0, Math.min(1, ratio));
 			const newProgress = Math.round(ratio * 100);
 			barFill.style.width = newProgress + "%";
+			barFill.className = "pd-bar-fill " + this.getFillClassByProgress(newProgress);
 			handle.style.left = newProgress + "%";
 			pctEl.setText(newProgress + "%");
-			pctEl.style.color = this.getColorByProgress(newProgress);
+			pctEl.className = "pd-pct-inline " + this.getColorClassByProgress(newProgress);
 			levelBadge.setText(this.getLevelText(newProgress));
 			levelBadge.className = "pd-level " + this.getLevelClass(newProgress);
 			entry.progress = newProgress;
@@ -569,13 +635,6 @@ class ProgressDashboardView extends ItemView {
 		/* 异步保存（仅在 mouseup 时调用一次） */
 		const saveProgress = async (newProgress: number) => {
 			const key = getSkillKey(entry.parentName, entry.name);
-			console.log("[ProgressDashboard] saveProgress:", { 
-				key, 
-				entryName: entry.name, 
-				parentName: entry.parentName, 
-				newProgress,
-				hasChildren: entry.children.length
-			});
 			this.plugin.data.manualProgress[key] = newProgress;
 			if (!entry.parentName) {
 				this.plugin.data.manualProgress[entry.name] = newProgress;
@@ -594,7 +653,6 @@ class ProgressDashboardView extends ItemView {
 				this.refreshParentUI(entry.parentName);
 			}
 			await this.plugin.saveSettings();
-			console.log("[ProgressDashboard] manualProgress:", { ...this.plugin.data.manualProgress });
 		};
 
 		/* 拖动状态 */
@@ -603,7 +661,6 @@ class ProgressDashboardView extends ItemView {
 		let lastClientX = 0;
 
 		barTrack.addEventListener("mousedown", (e) => {
-			/* 只响应左键 */
 			if (e.button !== 0) return;
 			e.preventDefault();
 			isDragging = true;
@@ -615,9 +672,8 @@ class ProgressDashboardView extends ItemView {
 			if (!isDragging) return;
 			e.preventDefault();
 			lastClientX = e.clientX;
-			/* 使用 requestAnimationFrame 节流，避免频繁重绘 */
 			if (rafId === null) {
-				rafId = requestAnimationFrame(() => {
+				rafId = window.requestAnimationFrame(() => {
 					rafId = null;
 					updateUI(lastClientX);
 				});
@@ -645,8 +701,7 @@ class ProgressDashboardView extends ItemView {
 			const id = rafId;
 			if (id !== null) cancelAnimationFrame(id);
 		};
-		if (!(this as any)._viewCleanup) (this as any)._viewCleanup = [];
-		(this as any)._viewCleanup.push(cleanup);
+		this.plugin.viewCleanup.push(cleanup);
 
 		/* 右栏：笔记列表 + 操作 */
 		const colNotes = row.createDiv("pd-col-notes");
@@ -654,23 +709,20 @@ class ProgressDashboardView extends ItemView {
 		if (entry.files.length > 0) {
 			for (const file of entry.files) {
 				const noteChip = colNotes.createEl("span", { cls: "pd-note-chip" });
-				
-				/* 笔记名称 */
+
 				noteChip.createEl("span", { cls: "pd-note-name", text: file.basename });
-				
-				/* 删除笔记按钮 */
+
 				const removeBtn = noteChip.createEl("span", { cls: "pd-note-remove" });
-				removeBtn.innerHTML = `<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+				createIcon(removeBtn, ICONS.close, 10);
 				removeBtn.title = "从技能中移除此笔记";
-				
+
 				removeBtn.addEventListener("click", async (e) => {
 					e.stopPropagation();
-					console.log("[ProgressDashboard] removeNote:", { skillKey, filePath: file.path, fileName: file.basename });
-					
+
 					/* 1. 从 attachedNotes 中移除（所有可能的 key） */
 					const keysToCheck = [skillKey, entry.name];
 					if (entry.parentName) keysToCheck.push(entry.parentName);
-					
+
 					for (const key of keysToCheck) {
 						const paths = this.plugin.data.attachedNotes[key];
 						if (paths) {
@@ -683,7 +735,7 @@ class ProgressDashboardView extends ItemView {
 							}
 						}
 					}
-					
+
 					/* 同时检查所有 attachedNotes 中的引用 */
 					for (const [k, v] of Object.entries(this.plugin.data.attachedNotes)) {
 						if (!keysToCheck.includes(k)) {
@@ -696,7 +748,7 @@ class ProgressDashboardView extends ItemView {
 							}
 						}
 					}
-					
+
 					/* 2. 添加到 excludedNotes，使用所有可能的 key */
 					for (const key of keysToCheck) {
 						const excluded = this.plugin.data.excludedNotes[key] || [];
@@ -705,7 +757,7 @@ class ProgressDashboardView extends ItemView {
 						}
 						this.plugin.data.excludedNotes[key] = excluded;
 					}
-					
+
 					/* 同时用笔记中的 skill 字段作为 key 排除 */
 					const cache = this.app.metadataCache.getFileCache(file);
 					if (cache && cache.frontmatter && cache.frontmatter["skill"]) {
@@ -716,12 +768,11 @@ class ProgressDashboardView extends ItemView {
 							this.plugin.data.excludedNotes[yamlSkill] = yamlExcluded;
 						}
 					}
-					
-					console.log("[ProgressDashboard] excludedNotes after remove:", { ...this.plugin.data.excludedNotes });
+
 					await this.plugin.saveSettings();
 					this.renderView();
 				});
-				
+
 				noteChip.title = "点击打开：" + file.path + "（右键移除）";
 				noteChip.addEventListener("click", (e) => {
 					if (e.target === removeBtn || removeBtn.contains(e.target as Node)) return;
@@ -738,45 +789,35 @@ class ProgressDashboardView extends ItemView {
 		if (!entry.parentName) {
 			const addChildBtn = actionGroup.createEl("span", { cls: "pd-add-child-btn" });
 			addChildBtn.title = "添加子技能";
-			addChildBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
-			addChildBtn.style.display = "none";  /* 默认隐藏，悬停时显示 */
-			
-			/* 悬停父技能行时显示按钮 */
+			createIcon(addChildBtn, ICONS.plus);
+			addChildBtn.addClass("pd-btn-hidden");
+
 			row.addEventListener("mouseenter", () => {
-				addChildBtn.style.display = "inline-flex";
+				addChildBtn.removeClass("pd-btn-hidden");
 			});
 			row.addEventListener("mouseleave", () => {
-				addChildBtn.style.display = "none";
+				addChildBtn.addClass("pd-btn-hidden");
 			});
-			
+
 			addChildBtn.addEventListener("click", (e) => {
 				e.stopPropagation();
-				const input = document.createElement("input");
+				const input = actionGroup.createEl("input", { cls: "pd-child-input" });
 				input.type = "text";
 				input.placeholder = "输入子技能名称";
-				input.style.padding = "6px 10px";
-				input.style.borderRadius = "6px";
-				input.style.border = "1px solid var(--interactive-accent)";
-				input.style.background = "var(--background-secondary)";
-				input.style.color = "var(--text-normal)";
-				input.style.fontSize = "13px";
-				input.style.width = "160px";
-				
-				/* 替换按钮为输入框 */
+
 				actionGroup.replaceChild(input, addChildBtn);
 				input.focus();
-				
+
 				const finishInput = (commit: boolean) => {
 					const childName = input.value.trim();
 					if (commit && childName) {
-						const skillKey = getSkillKey(entry.name, childName);
-						
-						/* 检查是否已存在 */
+						const childSkillKey = getSkillKey(entry.name, childName);
+						void childSkillKey;
+
 						const exists = entry.children.some((c) => c.name === childName);
 						if (exists) {
 							new Notice("子技能已存在：" + childName);
 						} else {
-							/* 添加子技能 */
 							const newChild: SkillEntry = {
 								name: childName,
 								desc: "",
@@ -789,38 +830,33 @@ class ProgressDashboardView extends ItemView {
 								parentName: entry.name,
 								children: [],
 							};
-							
-							/* 更新或创建自定义技能记录（保存子技能列表） */
+
 							let cs = this.plugin.data.customSkills.find((s) => s.name === entry.name);
 							if (cs) {
-								/* 已存在，更新描述 */
 								const existingChildren = parseChildren(cs.desc) || [];
 								if (!existingChildren.includes(childName)) {
 									existingChildren.push(childName);
 									cs.desc = existingChildren.join("、");
 								}
 							} else {
-								/* 不存在，创建新的自定义技能记录（用于保存子技能列表） */
 								this.plugin.data.customSkills.push({
 									name: entry.name,
 									desc: childName,
 									category: entry.category,
 								});
 							}
-							
-							/* 确保父技能展开 */
+
 							this.expandedSkills.add(getSkillKey(entry.parentName, entry.name));
-							
-							this.plugin.saveSettings();
+
+							this.plugin.saveSettings().catch((err: unknown) => { void err; });
 							new Notice("已添加子技能：" + childName);
 							this.renderView();
 							return;
 						}
 					}
-					/* 恢复按钮 */
 					actionGroup.replaceChild(addChildBtn, input);
 				};
-				
+
 				input.addEventListener("keydown", (ev) => {
 					if (ev.key === "Enter") {
 						ev.preventDefault();
@@ -830,7 +866,7 @@ class ProgressDashboardView extends ItemView {
 						finishInput(false);
 					}
 				});
-				
+
 				input.addEventListener("blur", () => {
 					finishInput(true);
 				});
@@ -841,14 +877,14 @@ class ProgressDashboardView extends ItemView {
 		if (entry.files.length === 0) {
 			const createBtn = actionGroup.createEl("span", { cls: "pd-create-note-btn" });
 			createBtn.title = "创建新笔记";
-			createBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>`;
+			createIcon(createBtn, ICONS.createNote);
 			createBtn.addEventListener("click", async (e) => {
 				e.stopPropagation();
 				try {
 					const fileName = entry.name + ".md";
 					const existing = this.app.vault.getAbstractFileByPath(fileName);
-					if (existing) {
-						await this.app.workspace.getLeaf(true).openFile(existing as TFile);
+					if (existing && existing instanceof TFile) {
+						await this.app.workspace.getLeaf(true).openFile(existing);
 						return;
 					}
 					const skillYaml = entry.parentName
@@ -867,7 +903,7 @@ class ProgressDashboardView extends ItemView {
 		/* 添加已有笔记按钮 */
 		const attachBtn = actionGroup.createEl("span", { cls: "pd-attach-btn" });
 		attachBtn.title = "添加已有笔记";
-		attachBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>`;
+		createIcon(attachBtn, ICONS.attach);
 		attachBtn.addEventListener("click", (e) => {
 			e.stopPropagation();
 			new PickNoteModal(this.app, this.plugin, skillKey, () => {
@@ -878,28 +914,29 @@ class ProgressDashboardView extends ItemView {
 		/* 日期按钮 */
 		const startDate = this.plugin.data.skillStartDates[skillKey];
 		const endDate = this.plugin.data.skillEndDates[skillKey];
-		
+
 		const createDateBtn = (
 			type: "start" | "end",
 			value: string | undefined,
 			title: string,
-			icon: string
+			iconParts: SvgPart[]
 		) => {
 			const btn = actionGroup.createEl("span", { cls: "pd-date-btn" });
 			btn.title = title;
-			const dateText = value ? `<span class="pd-date-text">${value.slice(5)}</span>` : "";
-			btn.innerHTML = dateText + icon;
-			
+			if (value) {
+				btn.createEl("span", { cls: "pd-date-text", text: value.slice(5) });
+			}
+			createIcon(btn, iconParts);
+
 			btn.addEventListener("click", (e) => {
 				e.stopPropagation();
-				const input = document.createElement("input");
+				const input = btn.createEl("input", { cls: "pd-date-input-hidden" });
 				input.type = "date";
 				input.value = value || "";
-				input.style.position = "absolute";
-				input.style.opacity = "0";
-				input.style.pointerEvents = "none";
-				btn.appendChild(input);
-				(input as any).showPicker();
+				const inputEl = input as HTMLInputElement & { showPicker: () => void };
+				if (typeof inputEl.showPicker === "function") {
+					inputEl.showPicker();
+				}
 				input.addEventListener("change", async () => {
 					if (type === "start") {
 						if (input.value) {
@@ -921,37 +958,32 @@ class ProgressDashboardView extends ItemView {
 			});
 			return btn;
 		};
-		
-		const startIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
-		const endIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
-		
-		createDateBtn("start", startDate, startDate ? "修改开始日期" : "添加开始日期", startIcon);
-		createDateBtn("end", endDate, endDate ? "修改结束日期" : "添加结束日期", endIcon);
+
+		createDateBtn("start", startDate, startDate ? "修改开始日期" : "添加开始日期", ICONS.clock);
+		createDateBtn("end", endDate, endDate ? "修改结束日期" : "添加结束日期", ICONS.checkCircle);
 
 		/* 删除按钮 */
 		const delBtn = actionGroup.createEl("span", { cls: "pd-del-btn" });
 		delBtn.title = "删除此技能";
-		delBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`;
+		createIcon(delBtn, ICONS.trash);
 		delBtn.addEventListener("click", (e) => {
 			e.stopPropagation();
 			const skillK = getSkillKey(entry.parentName, entry.name);
 			const keysToDelete = [skillK];
-			
-			/* 如果是父技能，同时删除所有子技能 */
+
 			if (entry.children.length > 0) {
 				for (const child of entry.children) {
 					const childKey = getSkillKey(entry.name, child.name);
 					keysToDelete.push(childKey);
 				}
 			}
-			
+
 			for (const key of keysToDelete) {
 				if (!this.plugin.data.deletedSkills.includes(key)) {
 					this.plugin.data.deletedSkills.push(key);
 				}
 			}
-			
-			/* 清理进度数据 */
+
 			const newProgress: Record<string, number> = {};
 			for (const [k, v] of Object.entries(this.plugin.data.manualProgress)) {
 				if (!keysToDelete.includes(k)) {
@@ -959,8 +991,7 @@ class ProgressDashboardView extends ItemView {
 				}
 			}
 			this.plugin.data.manualProgress = newProgress;
-			
-			/* 清理关联笔记数据 */
+
 			const newAttached: Record<string, string[]> = {};
 			for (const [k, v] of Object.entries(this.plugin.data.attachedNotes)) {
 				if (!keysToDelete.includes(k)) {
@@ -968,8 +999,7 @@ class ProgressDashboardView extends ItemView {
 				}
 			}
 			this.plugin.data.attachedNotes = newAttached;
-			
-			/* 清理日期数据 */
+
 			const newStartDates: Record<string, string> = {};
 			for (const [k, v] of Object.entries(this.plugin.data.skillStartDates)) {
 				if (!keysToDelete.includes(k)) {
@@ -977,7 +1007,7 @@ class ProgressDashboardView extends ItemView {
 				}
 			}
 			this.plugin.data.skillStartDates = newStartDates;
-			
+
 			const newEndDates: Record<string, string> = {};
 			for (const [k, v] of Object.entries(this.plugin.data.skillEndDates)) {
 				if (!keysToDelete.includes(k)) {
@@ -985,16 +1015,15 @@ class ProgressDashboardView extends ItemView {
 				}
 			}
 			this.plugin.data.skillEndDates = newEndDates;
-			
-			/* 如果是自定义技能的父技能，删除自定义技能记录 */
+
 			const isCustomSkill = this.plugin.data.customSkills.some((cs) => cs.name === entry.name);
 			if (isCustomSkill && !entry.parentName) {
 				this.plugin.data.customSkills = this.plugin.data.customSkills.filter(
 					(cs) => cs.name !== entry.name
 				);
 			}
-			
-			this.plugin.saveSettings();
+
+			this.plugin.saveSettings().catch((err: unknown) => { void err; });
 			this.renderView();
 		});
 
@@ -1027,6 +1056,22 @@ class ProgressDashboardView extends ItemView {
 		return "pd-level-none";
 	}
 
+	private getColorClassByProgress(p: number): string {
+		if (p >= 100) return "pd-color-done";
+		if (p >= 67) return "pd-color-high";
+		if (p >= 34) return "pd-color-mid";
+		if (p > 0) return "pd-color-low";
+		return "pd-color-faint";
+	}
+
+	private getFillClassByProgress(p: number): string {
+		if (p >= 100) return "pd-fill-done";
+		if (p >= 67) return "pd-fill-high";
+		if (p >= 34) return "pd-fill-mid";
+		if (p > 0) return "pd-fill-low";
+		return "pd-fill-none";
+	}
+
 	private updateParentProgress(parentName: string) {
 		const parent = this.entries.find((e) => e.name === parentName && !e.parentName);
 		if (!parent || parent.children.length === 0) return;
@@ -1035,11 +1080,9 @@ class ProgressDashboardView extends ItemView {
 		parent.progress = avg;
 	}
 
-	/* 拖动子技能时，实时更新父技能的进度条 UI（不重新渲染整个视图） */
 	private refreshParentUI(parentName: string) {
 		const parent = this.entries.find((e) => e.name === parentName && !e.parentName);
 		if (!parent) return;
-		/* 通过 DOM 查找父技能的进度条元素 */
 		const parentRow = this.contentEl.querySelector(`[data-skill-key="${CSS.escape(parentName)}"][data-is-parent="true"]`);
 		if (!parentRow) return;
 		const barFill = parentRow.querySelector(".pd-bar-fill") as HTMLElement;
@@ -1049,12 +1092,12 @@ class ProgressDashboardView extends ItemView {
 		const pct = parent.progress;
 		if (barFill) {
 			barFill.style.width = pct + "%";
-			barFill.style.background = this.getGradientByProgress(pct);
+			barFill.className = "pd-bar-fill " + this.getFillClassByProgress(pct);
 		}
 		if (handle) handle.style.left = pct + "%";
 		if (pctEl) {
 			pctEl.setText(pct + "%");
-			pctEl.style.color = this.getColorByProgress(pct);
+			pctEl.className = "pd-pct-inline " + this.getColorClassByProgress(pct);
 		}
 		if (levelBadge) {
 			levelBadge.setText(this.getLevelText(pct));
@@ -1064,10 +1107,10 @@ class ProgressDashboardView extends ItemView {
 
 	private buildEntries(): SkillEntry[] {
 		const noteMap = new Map<string, { progress: number; files: TFile[]; hasExplicitProgress: boolean }>();
-		const appAny = this.app as any;
-		const vaults = [this.app.vault];
-		if (appAny.vaults && Array.isArray(appAny.vaults)) {
-			for (const v of appAny.vaults) {
+		const vaults: VaultLike[] = [this.app.vault];
+		const appWithVaults = this.app as unknown as { vaults?: VaultLike[] };
+		if (appWithVaults.vaults && Array.isArray(appWithVaults.vaults)) {
+			for (const v of appWithVaults.vaults) {
 				if (v !== this.app.vault) vaults.push(v);
 			}
 		}
@@ -1087,7 +1130,6 @@ class ProgressDashboardView extends ItemView {
 			const skillName = String(skill).trim();
 			if (!skillName) continue;
 
-			/* 检查这个笔记是否被用户排除（从技能中删除） */
 			const excludedPaths = this.plugin.data.excludedNotes[skillName];
 			if (excludedPaths && excludedPaths.includes(file.path)) continue;
 
@@ -1115,10 +1157,9 @@ class ProgressDashboardView extends ItemView {
 		}
 
 		for (const [key, paths] of Object.entries(this.plugin.data.attachedNotes)) {
-			let attFiles: TFile[] = [];
+			const attFiles: TFile[] = [];
 			const excludedPaths = this.plugin.data.excludedNotes[key] || [];
 			for (const p of paths) {
-				/* 跳过被排除的笔记 */
 				if (excludedPaths.includes(p)) continue;
 				const f = this.app.vault.getAbstractFileByPath(p);
 				if (f && f instanceof TFile) attFiles.push(f);
@@ -1137,38 +1178,31 @@ class ProgressDashboardView extends ItemView {
 		}
 
 		const collectNoteData = (keys: string[]): { progress: number; files: TFile[]; hasExplicitProgress: boolean } | null => {
-			let latest: { progress: number; file: TFile; hasExplicitProgress: boolean } | null = null;
-			const allFiles: TFile[] = [];
+			const allCollectedFiles: TFile[] = [];
 			let anyHasExplicit = false;
 			let maxProgress = 0;
 			for (const key of keys) {
 				const data = noteMap.get(key);
 				if (data) {
 					for (const f of data.files) {
-						if (!allFiles.some((af) => af.path === f.path)) {
-							allFiles.push(f);
+						if (!allCollectedFiles.some((af) => af.path === f.path)) {
+							allCollectedFiles.push(f);
 						}
 					}
 					if (data.hasExplicitProgress) {
 						anyHasExplicit = true;
 						if (data.progress > maxProgress) maxProgress = data.progress;
 					}
-					if (!latest || data.files[data.files.length - 1].stat.mtime > latest.file.stat.mtime) {
-						latest = { progress: data.progress, file: data.files[data.files.length - 1], hasExplicitProgress: data.hasExplicitProgress };
-					}
 				}
 			}
-			if (allFiles.length === 0) return null;
-			/* 只有笔记明确写了 skill-progress 才有进度；否则进度为 0（不影响手动进度） */
-			return { progress: anyHasExplicit ? maxProgress : 0, files: allFiles, hasExplicitProgress: anyHasExplicit };
+			if (allCollectedFiles.length === 0) return null;
+			return { progress: anyHasExplicit ? maxProgress : 0, files: allCollectedFiles, hasExplicitProgress: anyHasExplicit };
 		};
 
 		const deletedSet = new Set(this.plugin.data.deletedSkills);
 
 		const entries: SkillEntry[] = [];
 
-		/* 先处理自定义技能，确保子技能被添加到 entries 中，
-		   这样后面检查 noteMap 时才能正确匹配已存在的子技能 */
 		for (const cs of this.plugin.data.customSkills) {
 			const csKey = getSkillKey(null, cs.name);
 			if (deletedSet.has(csKey)) continue;
@@ -1180,7 +1214,6 @@ class ProgressDashboardView extends ItemView {
 					const childKey = getSkillKey(cs.name, childName);
 					if (deletedSet.has(childKey)) return null;
 					const noteData = collectNoteData([childKey, childName]);
-					/* 只用完整的 childKey 查找手动进度，避免匹配到其他父技能下的同名子技能 */
 					const manual = this.plugin.data.manualProgress[childKey];
 					let progress = 0;
 					if (manual !== undefined) progress = manual;
@@ -1237,19 +1270,14 @@ class ProgressDashboardView extends ItemView {
 			}
 		}
 
-		/* 处理 noteMap 中的技能（通过笔记 YAML skill 字段关联）
-		   注意：笔记关联只会更新已存在的技能，不会创建新技能 */
 		for (const [skillName, data] of noteMap) {
 			if (deletedSet.has(skillName)) continue;
-			
-			/* 查找已存在的技能 */
+
 			let targetEntry: SkillEntry | null = null;
 			let isChild = false;
-			
-			/* 直接匹配：e.name === skillName */
+
 			targetEntry = entries.find((e) => e.name === skillName && !e.parentName) || null;
-			
-			/* 如果没找到，尝试作为子技能匹配 */
+
 			if (!targetEntry) {
 				for (const e of entries) {
 					if (e.children.length > 0) {
@@ -1259,7 +1287,6 @@ class ProgressDashboardView extends ItemView {
 							isChild = true;
 							break;
 						}
-						/* 尝试用 skillName 中的子技能名匹配 */
 						const parts = skillName.split("/");
 						if (parts.length > 1 && e.name === parts[0]) {
 							const childName = parts.slice(1).join("/");
@@ -1273,26 +1300,22 @@ class ProgressDashboardView extends ItemView {
 					}
 				}
 			}
-			
-			/* 只有找到已存在的技能才更新 */
+
 			if (targetEntry) {
 				targetEntry.files = data.files;
 				targetEntry.hasNote = true;
 				if (data.hasExplicitProgress) {
 					targetEntry.noteProgress = data.progress;
 				}
-				/* 如果没有手动进度，使用笔记进度 */
 				if (targetEntry.manualProgress === null && data.hasExplicitProgress) {
 					targetEntry.progress = data.progress;
 				}
-				
-				/* 如果是父技能，更新子技能的平均进度 */
+
 				if (!isChild && targetEntry.children.length > 0) {
 					const total = targetEntry.children.reduce((sum, c) => sum + c.progress, 0);
 					targetEntry.progress = targetEntry.manualProgress !== null ? targetEntry.manualProgress : Math.round(total / targetEntry.children.length);
 				}
 			}
-			/* 如果技能不存在，跳过（不创建新技能） */
 		}
 
 		return entries;
@@ -1339,22 +1362,6 @@ class ProgressDashboardView extends ItemView {
 		}
 		return arr;
 	}
-
-	private getColorByProgress(p: number): string {
-		if (p >= 100) return "#00e676";
-		if (p >= 67) return "#00b0ff";
-		if (p >= 34) return "#ffc107";
-		if (p > 0) return "#ff9100";
-		return "var(--text-faint)";
-	}
-
-	private getGradientByProgress(p: number): string {
-		if (p >= 100) return "linear-gradient(90deg, #00c853, #00e676)";
-		if (p >= 67) return "linear-gradient(90deg, #0091ea, #00b0ff, #40c4ff)";
-		if (p >= 34) return "linear-gradient(90deg, #ffa000, #ffc107, #ffe082)";
-		if (p > 0) return "linear-gradient(90deg, #e65100, #ff9100, #ffab40)";
-		return "transparent";
-	}
 }
 
 /* ===== 确认弹窗 ===== */
@@ -1375,35 +1382,14 @@ class ConfirmModal extends Modal {
 		contentEl.addClass("pd-modal");
 		contentEl.createEl("h3", { text: this.title });
 
-		const msgEl = contentEl.createEl("div");
-		msgEl.style.marginBottom = "20px";
-		msgEl.style.whiteSpace = "pre-line";
-		msgEl.style.color = "var(--text-normal)";
-		msgEl.style.fontSize = "14px";
-		msgEl.textContent = this.message;
+		contentEl.createEl("div", { cls: "pd-modal-msg", text: this.message });
 
 		const btnRow = contentEl.createDiv("pd-modal-btns");
-		btnRow.style.display = "flex";
-		btnRow.style.justifyContent = "flex-end";
-		btnRow.style.gap = "10px";
 
-		const cancelBtn = btnRow.createEl("button", { text: "取消" });
-		cancelBtn.style.padding = "8px 16px";
-		cancelBtn.style.borderRadius = "6px";
-		cancelBtn.style.border = "1px solid var(--background-modifier-border)";
-		cancelBtn.style.background = "var(--background-secondary)";
-		cancelBtn.style.color = "var(--text-normal)";
-		cancelBtn.style.cursor = "pointer";
+		const cancelBtn = btnRow.createEl("button", { text: "取消", cls: "pd-btn-cancel" });
 		cancelBtn.addEventListener("click", () => this.close());
 
-		const confirmBtn = btnRow.createEl("button", { text: "确定", cls: "mod-cta" });
-		confirmBtn.style.padding = "8px 20px";
-		confirmBtn.style.borderRadius = "6px";
-		confirmBtn.style.border = "none";
-		confirmBtn.style.background = "var(--interactive-accent)";
-		confirmBtn.style.color = "var(--text-on-accent)";
-		confirmBtn.style.fontWeight = "600";
-		confirmBtn.style.cursor = "pointer";
+		const confirmBtn = btnRow.createEl("button", { text: "确定", cls: "pd-btn-confirm mod-cta" });
 		confirmBtn.addEventListener("click", () => {
 			this.onConfirm();
 			this.close();
@@ -1437,92 +1423,44 @@ class AddSkillModal extends Modal {
 
 		/* 分类输入 */
 		const catRow = contentEl.createDiv("pd-form-row");
-		catRow.style.marginBottom = "16px";
-		catRow.createEl("label", { text: "分类" }).style.display = "block";
+		catRow.createEl("label", { text: "分类", cls: "pd-form-label" });
 		this.categoryInput = catRow.createEl("input", {
-			type: "text",
-			placeholder: "输入分类名称，如：技术、学习、生活",
+			cls: "pd-form-input",
+			attr: { type: "text", placeholder: "输入分类名称，如：技术、学习、生活" },
 		});
-		this.categoryInput.style.width = "100%";
-		this.categoryInput.style.padding = "8px 12px";
-		this.categoryInput.style.borderRadius = "6px";
-		this.categoryInput.style.border = "1px solid var(--background-modifier-border)";
-		this.categoryInput.style.background = "var(--background-secondary)";
-		this.categoryInput.style.color = "var(--text-normal)";
-		this.categoryInput.style.fontSize = "14px";
-		this.categoryInput.style.boxSizing = "border-box";
 
 		/* 技能名称 */
 		const nameRow = contentEl.createDiv("pd-form-row");
-		nameRow.style.marginBottom = "16px";
-		nameRow.createEl("label", { text: "技能名称" }).style.display = "block";
+		nameRow.createEl("label", { text: "技能名称", cls: "pd-form-label" });
 		this.nameInput = nameRow.createEl("input", {
-			type: "text",
-			placeholder: "输入技能/项目名称",
-		});
-		this.nameInput.style.width = "100%";
-		this.nameInput.style.padding = "8px 12px";
-		this.nameInput.style.borderRadius = "6px";
-		this.nameInput.style.border = "1px solid var(--background-modifier-border)";
-		this.nameInput.style.background = "var(--background-secondary)";
-		this.nameInput.style.color = "var(--text-normal)";
-		this.nameInput.style.fontSize = "14px";
-		this.nameInput.style.boxSizing = "border-box";
-		this.nameInput.addEventListener("input", () => {
-			/* 实时更新，不再依赖 onChange */
+			cls: "pd-form-input",
+			attr: { type: "text", placeholder: "输入技能/项目名称" },
 		});
 
 		/* 技能描述 */
 		const descRow = contentEl.createDiv("pd-form-row");
-		descRow.style.marginBottom = "20px";
-		descRow.createEl("label", { text: "技能描述" }).style.display = "block";
-		const descHint = descRow.createEl("div", { text: "简要描述（可选）。用顿号/逗号分隔可拆为子技能" });
-		descHint.style.fontSize = "12px";
-		descHint.style.color = "var(--text-faint)";
+		descRow.createEl("label", { text: "技能描述", cls: "pd-form-label" });
+		descRow.createEl("div", { text: "简要描述（可选）。用顿号/逗号分隔可拆为子技能", cls: "pd-form-hint" });
 		this.descInput = descRow.createEl("input", {
-			type: "text",
-			placeholder: "简要描述...",
+			cls: "pd-form-input",
+			attr: { type: "text", placeholder: "简要描述..." },
 		});
-		this.descInput.style.width = "100%";
-		this.descInput.style.padding = "8px 12px";
-		this.descInput.style.borderRadius = "6px";
-		this.descInput.style.border = "1px solid var(--background-modifier-border)";
-		this.descInput.style.background = "var(--background-secondary)";
-		this.descInput.style.color = "var(--text-normal)";
-		this.descInput.style.fontSize = "14px";
-		this.descInput.style.boxSizing = "border-box";
 
 		/* 按钮 */
 		const btnRow = contentEl.createDiv("pd-modal-btns");
-		btnRow.style.display = "flex";
-		btnRow.style.justifyContent = "flex-end";
-		btnRow.style.gap = "10px";
 
-		const cancelBtn = btnRow.createEl("button", { text: "取消" });
-		cancelBtn.style.padding = "8px 16px";
-		cancelBtn.style.borderRadius = "6px";
-		cancelBtn.style.border = "1px solid var(--background-modifier-border)";
-		cancelBtn.style.background = "var(--background-secondary)";
-		cancelBtn.style.color = "var(--text-normal)";
-		cancelBtn.style.cursor = "pointer";
+		const cancelBtn = btnRow.createEl("button", { text: "取消", cls: "pd-btn-cancel" });
 		cancelBtn.addEventListener("click", () => this.close());
 
 		const submitBtn = btnRow.createEl("button", {
 			text: "添加",
-			cls: "mod-cta",
+			cls: "pd-btn-confirm mod-cta",
 		});
-		submitBtn.style.padding = "8px 20px";
-		submitBtn.style.borderRadius = "6px";
-		submitBtn.style.border = "none";
-		submitBtn.style.background = "var(--interactive-accent)";
-		submitBtn.style.color = "var(--text-on-accent)";
-		submitBtn.style.fontWeight = "600";
-		submitBtn.style.cursor = "pointer";
 		submitBtn.addEventListener("click", () => {
 			const name = this.nameInput.value.trim();
 			const desc = this.descInput.value.trim() || "自定义技能";
 			const category = this.categoryInput.value.trim() || "自定义技能";
-			
+
 			if (!name) {
 				new Notice("请输入技能名称");
 				this.nameInput.focus();
@@ -1571,6 +1509,7 @@ class PickNoteModal extends Modal {
 	private selectedPaths: Set<string> = new Set();
 	private footerEl!: HTMLElement;
 	private confirmBtn!: HTMLElement;
+	private selectInfoEl!: HTMLElement;
 	private lastClickedPath: string | null = null;
 	private currentVisibleFiles: TFile[] = [];
 
@@ -1593,52 +1532,19 @@ class PickNoteModal extends Modal {
 
 		/* 工具栏 */
 		const toolbar = contentEl.createDiv("pd-pick-toolbar");
-		toolbar.style.display = "flex";
-		toolbar.style.alignItems = "center";
-		toolbar.style.gap = "8px";
-		toolbar.style.marginBottom = "10px";
-		toolbar.style.flexWrap = "wrap";
 
 		/* 搜索框 */
 		this.searchInput = toolbar.createEl("input", {
-			type: "text",
-			placeholder: "搜索笔记名称或路径...",
 			cls: "pd-pick-search",
+			attr: { type: "text", placeholder: "搜索笔记名称或路径..." },
 		});
-		this.searchInput.style.flex = "1";
-		this.searchInput.style.minWidth = "150px";
-		this.searchInput.style.padding = "6px 10px";
-		this.searchInput.style.borderRadius = "6px";
-		this.searchInput.style.border = "1px solid var(--background-modifier-border)";
-		this.searchInput.style.background = "var(--background-secondary)";
-		this.searchInput.style.color = "var(--text-normal)";
-		this.searchInput.style.fontSize = "13px";
-		this.searchInput.style.boxSizing = "border-box";
 
 		/* 排序选项 */
-		const sortLabel = toolbar.createEl("span", { text: "排序：" });
-		sortLabel.style.fontSize = "12px";
-		sortLabel.style.color = "var(--text-faint)";
-		const sortSelect = toolbar.createEl("select");
-		sortSelect.style.padding = "5px 8px";
-		sortSelect.style.borderRadius = "6px";
-		sortSelect.style.border = "1px solid var(--background-modifier-border)";
-		sortSelect.style.background = "var(--background-secondary)";
-		sortSelect.style.color = "var(--text-normal)";
-		sortSelect.style.fontSize = "12px";
-		sortSelect.style.cursor = "pointer";
-		const opt1 = document.createElement("option");
-		opt1.value = "time-desc";
-		opt1.text = "修改时间↓";
-		sortSelect.add(opt1);
-		const opt2 = document.createElement("option");
-		opt2.value = "time-asc";
-		opt2.text = "修改时间↑";
-		sortSelect.add(opt2);
-		const opt3 = document.createElement("option");
-		opt3.value = "name";
-		opt3.text = "名称排序";
-		sortSelect.add(opt3);
+		toolbar.createEl("span", { text: "排序：", cls: "pd-pick-sort-label" });
+		const sortSelect = toolbar.createEl("select", { cls: "pd-pick-sort" });
+		sortSelect.createEl("option", { value: "time-desc", text: "修改时间↓" });
+		sortSelect.createEl("option", { value: "time-asc", text: "修改时间↑" });
+		sortSelect.createEl("option", { value: "name", text: "名称排序" });
 		sortSelect.value = this.sortMode;
 		sortSelect.addEventListener("change", () => {
 			this.sortMode = sortSelect.value as PickSortMode;
@@ -1647,15 +1553,9 @@ class PickNoteModal extends Modal {
 		});
 
 		/* 分组开关 */
-		const groupLabel = toolbar.createEl("span", { text: "按文件夹分组" });
-		groupLabel.style.fontSize = "12px";
-		groupLabel.style.color = "var(--text-faint)";
-		groupLabel.style.display = "flex";
-		groupLabel.style.alignItems = "center";
-		groupLabel.style.gap = "4px";
-		const groupCheckbox = toolbar.createEl("input", { type: "checkbox" });
+		toolbar.createEl("span", { text: "按文件夹分组", cls: "pd-pick-group-label" });
+		const groupCheckbox = toolbar.createEl("input", { cls: "pd-pick-checkbox", attr: { type: "checkbox" } });
 		groupCheckbox.checked = this.groupByFolder;
-		groupCheckbox.style.cursor = "pointer";
 		groupCheckbox.addEventListener("change", () => {
 			this.groupByFolder = groupCheckbox.checked;
 			if (this.groupByFolder) this.buildFolderGroups();
@@ -1663,14 +1563,7 @@ class PickNoteModal extends Modal {
 		});
 
 		/* 全选按钮 */
-		const selectAllBtn = toolbar.createEl("button", { text: "全选" });
-		selectAllBtn.style.padding = "4px 10px";
-		selectAllBtn.style.borderRadius = "6px";
-		selectAllBtn.style.border = "1px solid var(--background-modifier-border)";
-		selectAllBtn.style.background = "var(--background-secondary)";
-		selectAllBtn.style.color = "var(--text-normal)";
-		selectAllBtn.style.fontSize = "12px";
-		selectAllBtn.style.cursor = "pointer";
+		const selectAllBtn = toolbar.createEl("button", { text: "全选", cls: "pd-pick-btn" });
 		selectAllBtn.title = "全选当前显示的笔记";
 		selectAllBtn.addEventListener("click", () => {
 			for (const f of this.currentVisibleFiles) {
@@ -1683,14 +1576,7 @@ class PickNoteModal extends Modal {
 		});
 
 		/* 反选按钮 */
-		const invertBtn = toolbar.createEl("button", { text: "反选" });
-		invertBtn.style.padding = "4px 10px";
-		invertBtn.style.borderRadius = "6px";
-		invertBtn.style.border = "1px solid var(--background-modifier-border)";
-		invertBtn.style.background = "var(--background-secondary)";
-		invertBtn.style.color = "var(--text-normal)";
-		invertBtn.style.fontSize = "12px";
-		invertBtn.style.cursor = "pointer";
+		const invertBtn = toolbar.createEl("button", { text: "反选", cls: "pd-pick-btn" });
 		invertBtn.title = "反选当前显示的笔记";
 		invertBtn.addEventListener("click", () => {
 			for (const f of this.currentVisibleFiles) {
@@ -1707,57 +1593,24 @@ class PickNoteModal extends Modal {
 
 		/* 列表容器 */
 		this.listEl = contentEl.createDiv("pd-pick-list");
-		this.listEl.style.maxHeight = "400px";
-		this.listEl.style.overflowY = "auto";
-		this.listEl.style.border = "1px solid var(--background-modifier-border)";
-		this.listEl.style.borderRadius = "8px";
-		this.listEl.style.background = "var(--background-primary)";
 
 		this.collectFiles();
 		if (this.groupByFolder) this.buildFolderGroups();
-		
+
 		/* 底部按钮区域 */
 		this.footerEl = contentEl.createDiv("pd-pick-footer");
-		this.footerEl.style.display = "flex";
-		this.footerEl.style.alignItems = "center";
-		this.footerEl.style.justifyContent = "space-between";
-		this.footerEl.style.marginTop = "10px";
-		this.footerEl.style.padding = "10px";
-		this.footerEl.style.background = "var(--background-secondary)";
-		this.footerEl.style.borderRadius = "8px";
-		
-		const selectInfo = this.footerEl.createEl("span");
-		selectInfo.style.fontSize = "12px";
-		selectInfo.style.color = "var(--text-faint)";
-		selectInfo.textContent = "已选择 0 个笔记";
-		
-		const btnContainer = this.footerEl.createDiv();
-		btnContainer.style.display = "flex";
-		btnContainer.style.gap = "8px";
-		
-		const clearBtn = btnContainer.createEl("button", { text: "清空选择" });
-		clearBtn.style.padding = "6px 12px";
-		clearBtn.style.borderRadius = "6px";
-		clearBtn.style.border = "1px solid var(--background-modifier-border)";
-		clearBtn.style.background = "var(--background-primary)";
-		clearBtn.style.color = "var(--text-faint)";
-		clearBtn.style.fontSize = "12px";
-		clearBtn.style.cursor = "pointer";
+
+		this.selectInfoEl = this.footerEl.createEl("span", { cls: "pd-pick-info", text: "已选择 0 个笔记" });
+
+		const btnContainer = this.footerEl.createDiv("pd-pick-btn-container");
+
+		const clearBtn = btnContainer.createEl("button", { text: "清空选择", cls: "pd-pick-clear" });
 		clearBtn.addEventListener("click", () => {
 			this.selectedPaths.clear();
 			this.renderList(this.searchInput.value.toLowerCase().trim());
 		});
-		
-		this.confirmBtn = btnContainer.createEl("button", { text: "确认添加 (0)" });
-		this.confirmBtn.style.padding = "6px 16px";
-		this.confirmBtn.style.borderRadius = "6px";
-		this.confirmBtn.style.border = "none";
-		this.confirmBtn.style.background = "var(--interactive-accent)";
-		this.confirmBtn.style.color = "var(--text-on-accent)";
-		this.confirmBtn.style.fontSize = "13px";
-		this.confirmBtn.style.fontWeight = "600";
-		this.confirmBtn.style.cursor = "pointer";
-		this.confirmBtn.style.opacity = "0.5";
+
+		this.confirmBtn = btnContainer.createEl("button", { text: "确认添加 (0)", cls: "pd-pick-confirm mod-cta" });
 		this.confirmBtn.addEventListener("click", () => {
 			if (this.selectedPaths.size === 0) return;
 			const current = this.plugin.data.attachedNotes[this.skillKey] || [];
@@ -1769,12 +1622,12 @@ class PickNoteModal extends Modal {
 				}
 			}
 			this.plugin.data.attachedNotes[this.skillKey] = current;
-			this.plugin.saveSettings();
+			this.plugin.saveSettings().catch((err: unknown) => { void err; });
 			new Notice(`已关联 ${added} 个笔记`);
 			this.onPicked();
 			this.close();
 		});
-		
+
 		this.renderList("");
 		this.updateFooter();
 
@@ -1787,19 +1640,20 @@ class PickNoteModal extends Modal {
 
 	private updateFooter() {
 		const count = this.selectedPaths.size;
-		const info = this.footerEl.querySelector("span");
-		if (info) {
-			info.textContent = `已选择 ${count} 个笔记`;
+		this.selectInfoEl.setText(`已选择 ${count} 个笔记`);
+		this.confirmBtn.setText(`确认添加 (${count})`);
+		if (count > 0) {
+			this.confirmBtn.addClass("pd-pick-confirm-active");
+		} else {
+			this.confirmBtn.removeClass("pd-pick-confirm-active");
 		}
-		this.confirmBtn.textContent = `确认添加 (${count})`;
-		this.confirmBtn.style.opacity = count > 0 ? "1" : "0.5";
 	}
 
 	private collectFiles() {
-		const appAny = this.app as any;
-		const vaults = [this.app.vault];
-		if (appAny.vaults && Array.isArray(appAny.vaults)) {
-			for (const v of appAny.vaults) {
+		const vaults: VaultLike[] = [this.app.vault];
+		const appWithVaults = this.app as unknown as { vaults?: VaultLike[] };
+		if (appWithVaults.vaults && Array.isArray(appWithVaults.vaults)) {
+			for (const v of appWithVaults.vaults) {
 				if (v !== this.app.vault) vaults.push(v);
 			}
 		}
@@ -1818,7 +1672,6 @@ class PickNoteModal extends Modal {
 			}
 			this.folderGroups.get(folderPath)!.push(file);
 		}
-		/* 对每组文件进行排序 */
 		for (const [, files] of this.folderGroups) {
 			this.sortFiles(files);
 		}
@@ -1858,7 +1711,6 @@ class PickNoteModal extends Modal {
 		this.listEl.empty();
 		const existingPaths = new Set(this.plugin.data.attachedNotes[this.skillKey] || []);
 
-		/* 过滤文件 */
 		let filtered: TFile[];
 		if (query) {
 			filtered = this.allFiles.filter(
@@ -1879,7 +1731,6 @@ class PickNoteModal extends Modal {
 			return;
 		}
 
-		/* 优先显示有 skill 属性的笔记 */
 		if (!query) {
 			filtered.sort((a, b) => {
 				const aHas = this.hasSkillProperty(a) ? 0 : 1;
@@ -1891,7 +1742,6 @@ class PickNoteModal extends Modal {
 			});
 		}
 
-		/* 保存当前可见文件列表，用于全选和 Shift 连选 */
 		this.currentVisibleFiles = filtered.filter(
 			(f) => !existingPaths.has(f.path)
 		);
@@ -1906,7 +1756,6 @@ class PickNoteModal extends Modal {
 	}
 
 	private renderGroupedList(files: TFile[], existingPaths: Set<string>) {
-		/* 按文件夹分组 */
 		const groups = new Map<string, TFile[]>();
 		for (const file of files) {
 			const parts = file.path.split("/");
@@ -1917,7 +1766,6 @@ class PickNoteModal extends Modal {
 			groups.get(folderPath)!.push(file);
 		}
 
-		/* 对每个文件夹内的文件排序 */
 		for (const [, groupFiles] of groups) {
 			groupFiles.sort((a, b) => {
 				const aHas = this.hasSkillProperty(a) ? 0 : 1;
@@ -1929,7 +1777,6 @@ class PickNoteModal extends Modal {
 			});
 		}
 
-		/* 按文件夹名排序 */
 		const sortedFolders = Array.from(groups.entries()).sort(([a], [b]) => {
 			if (a === "/") return -1;
 			if (b === "/") return 1;
@@ -1938,41 +1785,15 @@ class PickNoteModal extends Modal {
 
 		for (const [folderPath, groupFiles] of sortedFolders) {
 			const folderSection = this.listEl.createDiv("pd-pick-folder-section");
-			folderSection.style.marginBottom = "8px";
 
-			/* 文件夹标题 */
 			const folderHeader = folderSection.createDiv("pd-pick-folder-header");
-			folderHeader.style.display = "flex";
-			folderHeader.style.alignItems = "center";
-			folderHeader.style.gap = "6px";
-			folderHeader.style.padding = "6px 10px";
-			folderHeader.style.background = "var(--background-secondary)";
-			folderHeader.style.borderRadius = "6px";
-			folderHeader.style.cursor = "pointer";
-			folderHeader.style.userSelect = "none";
-			folderHeader.style.transition = "background 0.15s";
-
-			const folderIcon = folderHeader.createEl("span");
+			const folderIcon = folderHeader.createEl("span", { cls: "pd-pick-folder-icon" });
 			const isExpanded = !this.folderToggleState.has(folderPath);
-			folderIcon.innerHTML = isExpanded
-				? `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`
-				: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`;
+			createIcon(folderIcon, isExpanded ? ICONS.chevronDown : ICONS.chevronRight, 14);
 
 			const displayName = folderPath === "/" ? "根目录" : folderPath;
-			const folderNameEl = folderHeader.createEl("span", { text: displayName });
-			folderNameEl.style.fontSize = "13px";
-			folderNameEl.style.fontWeight = "600";
-			folderNameEl.style.flex = "1";
-			folderNameEl.style.overflow = "hidden";
-			folderNameEl.style.textOverflow = "ellipsis";
-			folderNameEl.style.whiteSpace = "nowrap";
-
-			const count = folderHeader.createEl("span", { text: `${groupFiles.length}` });
-			count.style.fontSize = "11px";
-			count.style.color = "var(--text-faint)";
-			count.style.background = "var(--background-modifier-border)";
-			count.style.padding = "1px 6px";
-			count.style.borderRadius = "10px";
+			folderHeader.createEl("span", { text: displayName, cls: "pd-pick-folder-name" });
+			folderHeader.createEl("span", { text: `${groupFiles.length}`, cls: "pd-pick-folder-count" });
 
 			folderHeader.addEventListener("click", () => {
 				if (this.folderToggleState.has(folderPath)) {
@@ -1983,14 +1804,9 @@ class PickNoteModal extends Modal {
 				this.renderList(this.searchInput.value.toLowerCase().trim());
 			});
 
-			/* 折叠时不显示文件列表 */
 			if (!isExpanded) continue;
 
-			/* 文件列表 */
 			const fileList = folderSection.createDiv("pd-pick-file-list");
-			fileList.style.paddingLeft = "16px";
-			fileList.style.marginTop = "4px";
-
 			for (const file of groupFiles) {
 				this.createFileItem(fileList, file, existingPaths);
 			}
@@ -1998,32 +1814,17 @@ class PickNoteModal extends Modal {
 	}
 
 	private renderFlatList(files: TFile[], existingPaths: Set<string>) {
-		/* 先显示有 skill 属性的笔记 */
 		const withSkill = files.filter((f) => this.hasSkillProperty(f));
 		const withoutSkill = files.filter((f) => !this.hasSkillProperty(f));
 
 		if (withSkill.length > 0 && !this.searchInput.value) {
-			const sectionLabel = this.listEl.createDiv();
-			sectionLabel.style.padding = "6px 10px";
-			sectionLabel.style.fontSize = "11px";
-			sectionLabel.style.color = "var(--interactive-accent)";
-			sectionLabel.style.fontWeight = "600";
-			sectionLabel.style.background = "rgba(var(--interactive-accent-rgb), 0.08)";
-			sectionLabel.style.borderBottom = "1px solid var(--background-modifier-border)";
-			sectionLabel.textContent = `📋 已有技能关联的笔记（${withSkill.length}）`;
+			this.listEl.createEl("div", { cls: "pd-pick-section-skill", text: `📋 已有技能关联的笔记（${withSkill.length}）` });
 
 			for (const file of withSkill) {
 				this.createFileItem(this.listEl, file, existingPaths);
 			}
 
-			const sectionLabel2 = this.listEl.createDiv();
-			sectionLabel2.style.padding = "6px 10px";
-			sectionLabel2.style.fontSize = "11px";
-			sectionLabel2.style.color = "var(--text-faint)";
-			sectionLabel2.style.fontWeight = "600";
-			sectionLabel2.style.background = "var(--background-secondary)";
-			sectionLabel2.style.borderBottom = "1px solid var(--background-modifier-border)";
-			sectionLabel2.textContent = `📝 其他笔记（${withoutSkill.length}）`;
+			this.listEl.createEl("div", { cls: "pd-pick-section-other", text: `📝 其他笔记（${withoutSkill.length}）` });
 		}
 
 		const filesToRender = this.searchInput.value
@@ -2040,75 +1841,38 @@ class PickNoteModal extends Modal {
 	private createFileItem(parent: HTMLElement, file: TFile, existingPaths: Set<string>) {
 		const isExisting = existingPaths.has(file.path);
 		const isSelected = this.selectedPaths.has(file.path);
-		
-		const item = parent.createDiv("pd-pick-item");
-		item.style.display = "flex";
-		item.style.alignItems = "center";
-		item.style.gap = "8px";
-		item.style.padding = "6px 10px";
-		item.style.cursor = isExisting ? "not-allowed" : "pointer";
-		item.style.borderBottom = "1px solid var(--background-modifier-border)";
-		item.style.fontSize = "13px";
-		item.style.borderRadius = "4px";
-		item.style.transition = "background 0.15s";
-		item.setAttribute("data-path", file.path);
-		
-		if (isSelected) {
-			item.style.background = "rgba(var(--interactive-accent-rgb), 0.15)";
-			item.style.borderLeft = "3px solid var(--interactive-accent)";
-		}
 
-		/* Checkbox */
-		const checkbox = item.createEl("input", { type: "checkbox" });
-		checkbox.style.width = "16px";
-		checkbox.style.height = "16px";
-		checkbox.style.cursor = isExisting ? "not-allowed" : "pointer";
-		checkbox.style.flexShrink = "0";
+		const item = parent.createDiv("pd-pick-item");
+		if (isExisting) item.addClass("pd-pick-item-existing");
+		if (isSelected) item.addClass("pd-pick-item-selected");
+		item.setAttribute("data-path", file.path);
+
+		const checkbox = item.createEl("input", { cls: "pd-pick-item-checkbox", attr: { type: "checkbox" } });
 		checkbox.checked = isSelected;
 		checkbox.disabled = isExisting;
 
-		const nameSpan = item.createEl("span", { text: file.basename });
-		nameSpan.style.flex = "1";
-		nameSpan.style.overflow = "hidden";
-		nameSpan.style.textOverflow = "ellipsis";
-		nameSpan.style.whiteSpace = "nowrap";
+		item.createEl("span", { text: file.basename, cls: "pd-pick-item-name" });
 
-		/* 显示 skill 属性标签 */
 		if (this.hasSkillProperty(file)) {
-			const skillTag = item.createEl("span", { text: "⚡ 已关联技能" });
-			skillTag.style.fontSize = "10px";
-			skillTag.style.color = "var(--interactive-accent)";
-			skillTag.style.background = "rgba(var(--interactive-accent-rgb), 0.12)";
-			skillTag.style.padding = "1px 6px";
-			skillTag.style.borderRadius = "4px";
-			skillTag.style.flexShrink = "0";
+			item.createEl("span", { text: "⚡ 已关联技能", cls: "pd-pick-item-skill" });
 		}
 
-		/* 显示修改时间 */
-		const timeSpan = item.createEl("span", { text: this.formatDate(file.stat.mtime) });
-		timeSpan.style.fontSize = "10px";
-		timeSpan.style.color = "var(--text-faint)";
-		timeSpan.style.flexShrink = "0";
+		item.createEl("span", { text: this.formatDate(file.stat.mtime), cls: "pd-pick-item-time" });
 
 		if (isExisting) {
-			item.style.opacity = "0.5";
-			const tag = item.createEl("span", { text: "✓ 已添加" });
-			tag.style.fontSize = "10px";
-			tag.style.color = "var(--text-faint)";
-			tag.style.flexShrink = "0";
+			item.createEl("span", { text: "✓ 已添加", cls: "pd-pick-item-tag" });
 		}
 
 		const handleSelect = (e: Event | MouseEvent) => {
 			e.stopPropagation();
 			if (isExisting) return;
-			
+
 			const isShift = e instanceof MouseEvent && e.shiftKey;
-			
+
 			if (isShift && this.lastClickedPath && this.lastClickedPath !== file.path) {
-				/* Shift 连选：选择两个点击之间的所有文件 */
 				const lastIdx = this.currentVisibleFiles.findIndex(f => f.path === this.lastClickedPath);
 				const curIdx = this.currentVisibleFiles.findIndex(f => f.path === file.path);
-				
+
 				if (lastIdx !== -1 && curIdx !== -1) {
 					const start = Math.min(lastIdx, curIdx);
 					const end = Math.max(lastIdx, curIdx);
@@ -2120,7 +1884,6 @@ class PickNoteModal extends Modal {
 					}
 				}
 			} else {
-				/* 普通点击：切换单个 */
 				if (this.selectedPaths.has(file.path)) {
 					this.selectedPaths.delete(file.path);
 				} else {
@@ -2128,24 +1891,12 @@ class PickNoteModal extends Modal {
 				}
 				this.lastClickedPath = file.path;
 			}
-			
+
 			this.renderList(this.searchInput.value.toLowerCase().trim());
 		};
 
 		checkbox.addEventListener("change", handleSelect);
 		item.addEventListener("click", handleSelect);
-
-		item.addEventListener("mouseenter", () => {
-			if (!isExisting && !isSelected) {
-				item.style.background = "var(--background-modifier-hover)";
-			}
-		});
-		item.addEventListener("mouseleave", () => {
-			if (!isSelected) {
-				item.style.background = "";
-				item.style.borderLeft = "";
-			}
-		});
 	}
 
 	onClose() {

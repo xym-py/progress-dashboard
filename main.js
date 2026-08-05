@@ -53,10 +53,72 @@ function isOnlyPunct(s) {
 function getSkillKey(parent, name) {
   return parent ? `${parent}/${name}` : name;
 }
+var SVG_NS = "http://www.w3.org/2000/svg";
+function createIcon(parent, parts, size = 16) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  for (const part of parts) {
+    const el = document.createElementNS(SVG_NS, part.tag);
+    for (const [k, v] of Object.entries(part.attrs)) {
+      el.setAttribute(k, v);
+    }
+    svg.appendChild(el);
+  }
+  parent.appendChild(svg);
+  return svg;
+}
+var ICONS = {
+  chevronDown: [{ tag: "polyline", attrs: { points: "6 9 12 15 18 9" } }],
+  chevronRight: [{ tag: "polyline", attrs: { points: "9 6 15 12 9 18" } }],
+  close: [
+    { tag: "line", attrs: { x1: "18", y1: "6", x2: "6", y2: "18" } },
+    { tag: "line", attrs: { x1: "6", y1: "6", x2: "18", y2: "18" } }
+  ],
+  pin: [
+    { tag: "path", attrs: { d: "M12 17v5" } },
+    { tag: "path", attrs: { d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" } }
+  ],
+  plus: [
+    { tag: "line", attrs: { x1: "12", y1: "5", x2: "12", y2: "19" } },
+    { tag: "line", attrs: { x1: "5", y1: "12", x2: "19", y2: "12" } }
+  ],
+  createNote: [
+    { tag: "path", attrs: { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" } },
+    { tag: "polyline", attrs: { points: "14 2 14 8 20 8" } },
+    { tag: "line", attrs: { x1: "12", y1: "18", x2: "12", y2: "12" } },
+    { tag: "line", attrs: { x1: "9", y1: "15", x2: "15", y2: "15" } }
+  ],
+  attach: [
+    { tag: "path", attrs: { d: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" } }
+  ],
+  clock: [
+    { tag: "circle", attrs: { cx: "12", cy: "12", r: "10" } },
+    { tag: "polyline", attrs: { points: "12 6 12 12 16 14" } }
+  ],
+  checkCircle: [
+    { tag: "path", attrs: { d: "M22 11.08V12a10 10 0 1 1-5.93-9.14" } },
+    { tag: "polyline", attrs: { points: "22 4 12 14.01 9 11.01" } }
+  ],
+  trash: [
+    { tag: "polyline", attrs: { points: "3 6 5 6 21 6" } },
+    { tag: "path", attrs: { d: "M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" } },
+    { tag: "path", attrs: { d: "M10 11v6" } },
+    { tag: "path", attrs: { d: "M14 11v6" } },
+    { tag: "path", attrs: { d: "M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" } }
+  ]
+};
 var ProgressDashboardPlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
     this.data = DEFAULT_DATA;
+    this.viewCleanup = [];
   }
   async onload() {
     await this.loadSettings();
@@ -65,8 +127,8 @@ var ProgressDashboardPlugin = class extends import_obsidian.Plugin {
       (leaf) => new ProgressDashboardView(leaf, this)
     );
     this.addCommand({
-      id: "open-progress-dashboard",
-      name: "打开学习项目进度看板",
+      id: "open-view",
+      name: "打开看板",
       callback: () => this.activateView()
     });
     this.addRibbonIcon("bar-chart-3", "学习项目进度看板", () => {
@@ -105,13 +167,15 @@ var ProgressDashboardPlugin = class extends import_obsidian.Plugin {
       this.data.skillStartDates = {};
     if (!this.data.skillEndDates)
       this.data.skillEndDates = {};
-    if (this.data.skillDates) {
-      for (const [k, v] of Object.entries(this.data.skillDates)) {
+    const loadedData = loaded;
+    if (loadedData && loadedData["skillDates"] && typeof loadedData["skillDates"] === "object") {
+      const oldDates = loadedData["skillDates"];
+      for (const [k, v] of Object.entries(oldDates)) {
         if (v && !this.data.skillStartDates[k]) {
           this.data.skillStartDates[k] = v;
         }
       }
-      delete this.data.skillDates;
+      delete loadedData["skillDates"];
     }
     const uniquePinned = [];
     const seenCats = /* @__PURE__ */ new Set();
@@ -163,7 +227,7 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
     this.renderView();
   }
   async onClose() {
-    const cleanup = this._viewCleanup;
+    const cleanup = this.plugin.viewCleanup;
     if (cleanup && Array.isArray(cleanup)) {
       for (const fn of cleanup) {
         try {
@@ -171,7 +235,7 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
         } catch (e) {
         }
       }
-      this._viewCleanup = [];
+      this.plugin.viewCleanup = [];
     }
   }
   matchesSearch(entry, query) {
@@ -208,12 +272,12 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
     const flatEntries = this.flattenEntries();
     const stats = this.calcStats(flatEntries);
     const statsBar = container.createDiv("pd-stats");
-    this.renderStat(statsBar, "总技能", String(stats.count), "var(--text-normal)");
-    this.renderStat(statsBar, "平均进度", stats.avg + "%", this.getColorByProgress(stats.avg));
-    this.renderStat(statsBar, "已完成", String(stats.completed), "#00e676");
-    this.renderStat(statsBar, "进行中", String(stats.inProgress), "#00b0ff");
-    this.renderStat(statsBar, "刚起步", String(stats.started), "#ff9100");
-    this.renderStat(statsBar, "未开始", String(stats.notStarted), "var(--text-faint)");
+    this.renderStat(statsBar, "总技能", String(stats.count), "pd-stat-color-normal");
+    this.renderStat(statsBar, "平均进度", stats.avg + "%", this.getColorClassByProgress(stats.avg));
+    this.renderStat(statsBar, "已完成", String(stats.completed), "pd-stat-color-done");
+    this.renderStat(statsBar, "进行中", String(stats.inProgress), "pd-stat-color-high");
+    this.renderStat(statsBar, "刚起步", String(stats.started), "pd-stat-color-low");
+    this.renderStat(statsBar, "未开始", String(stats.notStarted), "pd-stat-color-faint");
     const toolbar = container.createDiv("pd-toolbar");
     toolbar.createEl("span", { cls: "pd-sort-label", text: "排序：" });
     const sortSelect = toolbar.createEl("select", { cls: "pd-sort-select" });
@@ -242,10 +306,6 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
     const addBtn = toolbar.createEl("button", { cls: "pd-add-btn", text: "+ 添加技能" });
     addBtn.addEventListener("click", () => {
       new AddSkillModal(this.app, (name, desc, category) => {
-        console.log("[ProgressDashboard] 添加技能:", { name, desc, category });
-        console.log("[ProgressDashboard] 当前 entries:", this.entries.map((e) => e.name));
-        console.log("[ProgressDashboard] customSkills:", this.plugin.data.customSkills);
-        console.log("[ProgressDashboard] deletedSkills:", this.plugin.data.deletedSkills);
         const exists = this.entries.some((e) => e.name === name && !e.parentName);
         if (exists) {
           new import_obsidian.Notice("该技能已存在：" + name);
@@ -258,8 +318,8 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
             (k) => k !== skillKey
           );
         }
-        this.plugin.saveSettings();
-        console.log("[ProgressDashboard] 保存后 customSkills:", this.plugin.data.customSkills);
+        this.plugin.saveSettings().catch((err) => {
+        });
         this.renderView();
         new import_obsidian.Notice("已添加技能：" + name);
       }).open();
@@ -276,7 +336,8 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
         this.plugin.data.pinnedCategories = [];
         this.plugin.data.skillStartDates = {};
         this.plugin.data.skillEndDates = {};
-        this.plugin.saveSettings();
+        this.plugin.saveSettings().catch((err) => {
+        });
         this.renderView();
         new import_obsidian.Notice("已重置所有数据");
       }).open();
@@ -303,14 +364,15 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
       const isCatPinned = pinnedCats.has(cat.category);
       const catPinBtn = catHeader.createEl("span", { cls: "pd-cat-pin-btn" + (isCatPinned ? " pd-pin-active" : "") });
       catPinBtn.title = isCatPinned ? "取消置顶分类" : "置顶分类";
-      catPinBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
+      createIcon(catPinBtn, ICONS.pin, 14);
       catPinBtn.addEventListener("click", () => {
         if (isCatPinned) {
           this.plugin.data.pinnedCategories = this.plugin.data.pinnedCategories.filter((c) => c !== cat.category);
         } else {
           this.plugin.data.pinnedCategories.push(cat.category);
         }
-        this.plugin.saveSettings();
+        this.plugin.saveSettings().catch((err) => {
+        });
         this.renderView();
       });
       const catStats = this.calcStats(catEntries);
@@ -336,11 +398,11 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
     }
     return result;
   }
-  renderStat(parent, label, value, color) {
+  renderStat(parent, label, value, colorClass) {
     const item = parent.createDiv("pd-stat-item");
     item.createEl("span", { cls: "pd-stat-label", text: label });
-    const val = item.createEl("span", { cls: "pd-stat-value", text: value });
-    val.style.color = color;
+    const val = item.createEl("span", { cls: "pd-stat-value " + colorClass, text: value });
+    return val;
   }
   renderSkillRow(parent, entry, depth) {
     const row = parent.createDiv("pd-row");
@@ -356,7 +418,7 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
     if (entry.children.length > 0) {
       const toggle = titleRow.createEl("span", { cls: "pd-toggle" });
       const isExpanded = this.expandedSkills.has(getSkillKey(entry.parentName, entry.name));
-      toggle.innerHTML = isExpanded ? `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>` : `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`;
+      createIcon(toggle, isExpanded ? ICONS.chevronDown : ICONS.chevronRight, 18);
       toggle.addEventListener("click", (e) => {
         e.stopPropagation();
         const key = getSkillKey(entry.parentName, entry.name);
@@ -376,14 +438,13 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
     const barFill = barTrack.createDiv("pd-bar-fill");
     const pct = entry.progress;
     barFill.style.width = pct + "%";
-    barFill.style.background = this.getGradientByProgress(pct);
+    barFill.addClass(this.getFillClassByProgress(pct));
     const handle = barTrack.createDiv("pd-bar-handle");
     handle.style.left = pct + "%";
     const pctEl = colBar.createDiv("pd-pct-inline");
     pctEl.setText(pct + "%");
-    pctEl.style.color = this.getColorByProgress(pct);
-    const levelBadge = colBar.createEl("span", { cls: "pd-level", text: this.getLevelText(pct) });
-    levelBadge.className = "pd-level " + this.getLevelClass(pct);
+    pctEl.addClass(this.getColorClassByProgress(pct));
+    const levelBadge = colBar.createEl("span", { cls: "pd-level " + this.getLevelClass(pct), text: this.getLevelText(pct) });
     const updateUI = (clientX) => {
       const rect = barTrack.getBoundingClientRect();
       if (rect.width === 0)
@@ -392,9 +453,10 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
       ratio = Math.max(0, Math.min(1, ratio));
       const newProgress = Math.round(ratio * 100);
       barFill.style.width = newProgress + "%";
+      barFill.className = "pd-bar-fill " + this.getFillClassByProgress(newProgress);
       handle.style.left = newProgress + "%";
       pctEl.setText(newProgress + "%");
-      pctEl.style.color = this.getColorByProgress(newProgress);
+      pctEl.className = "pd-pct-inline " + this.getColorClassByProgress(newProgress);
       levelBadge.setText(this.getLevelText(newProgress));
       levelBadge.className = "pd-level " + this.getLevelClass(newProgress);
       entry.progress = newProgress;
@@ -403,13 +465,6 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
     };
     const saveProgress = async (newProgress) => {
       const key = getSkillKey(entry.parentName, entry.name);
-      console.log("[ProgressDashboard] saveProgress:", {
-        key,
-        entryName: entry.name,
-        parentName: entry.parentName,
-        newProgress,
-        hasChildren: entry.children.length
-      });
       this.plugin.data.manualProgress[key] = newProgress;
       if (!entry.parentName) {
         this.plugin.data.manualProgress[entry.name] = newProgress;
@@ -427,7 +482,6 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
         this.refreshParentUI(entry.parentName);
       }
       await this.plugin.saveSettings();
-      console.log("[ProgressDashboard] manualProgress:", { ...this.plugin.data.manualProgress });
     };
     let isDragging = false;
     let rafId = null;
@@ -446,7 +500,7 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
       e.preventDefault();
       lastClientX = e.clientX;
       if (rafId === null) {
-        rafId = requestAnimationFrame(() => {
+        rafId = window.requestAnimationFrame(() => {
           rafId = null;
           updateUI(lastClientX);
         });
@@ -472,20 +526,17 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
       if (id !== null)
         cancelAnimationFrame(id);
     };
-    if (!this._viewCleanup)
-      this._viewCleanup = [];
-    this._viewCleanup.push(cleanup);
+    this.plugin.viewCleanup.push(cleanup);
     const colNotes = row.createDiv("pd-col-notes");
     if (entry.files.length > 0) {
       for (const file of entry.files) {
         const noteChip = colNotes.createEl("span", { cls: "pd-note-chip" });
         noteChip.createEl("span", { cls: "pd-note-name", text: file.basename });
         const removeBtn = noteChip.createEl("span", { cls: "pd-note-remove" });
-        removeBtn.innerHTML = `<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+        createIcon(removeBtn, ICONS.close, 10);
         removeBtn.title = "从技能中移除此笔记";
         removeBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          console.log("[ProgressDashboard] removeNote:", { skillKey, filePath: file.path, fileName: file.basename });
           const keysToCheck = [skillKey, entry.name];
           if (entry.parentName)
             keysToCheck.push(entry.parentName);
@@ -528,7 +579,6 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
               this.plugin.data.excludedNotes[yamlSkill] = yamlExcluded;
             }
           }
-          console.log("[ProgressDashboard] excludedNotes after remove:", { ...this.plugin.data.excludedNotes });
           await this.plugin.saveSettings();
           this.renderView();
         });
@@ -545,32 +595,25 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
     if (!entry.parentName) {
       const addChildBtn = actionGroup.createEl("span", { cls: "pd-add-child-btn" });
       addChildBtn.title = "添加子技能";
-      addChildBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
-      addChildBtn.style.display = "none";
+      createIcon(addChildBtn, ICONS.plus);
+      addChildBtn.addClass("pd-btn-hidden");
       row.addEventListener("mouseenter", () => {
-        addChildBtn.style.display = "inline-flex";
+        addChildBtn.removeClass("pd-btn-hidden");
       });
       row.addEventListener("mouseleave", () => {
-        addChildBtn.style.display = "none";
+        addChildBtn.addClass("pd-btn-hidden");
       });
       addChildBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        const input = document.createElement("input");
+        const input = actionGroup.createEl("input", { cls: "pd-child-input" });
         input.type = "text";
         input.placeholder = "输入子技能名称";
-        input.style.padding = "6px 10px";
-        input.style.borderRadius = "6px";
-        input.style.border = "1px solid var(--interactive-accent)";
-        input.style.background = "var(--background-secondary)";
-        input.style.color = "var(--text-normal)";
-        input.style.fontSize = "13px";
-        input.style.width = "160px";
         actionGroup.replaceChild(input, addChildBtn);
         input.focus();
         const finishInput = (commit) => {
           const childName = input.value.trim();
           if (commit && childName) {
-            const skillKey2 = getSkillKey(entry.name, childName);
+            const childSkillKey = getSkillKey(entry.name, childName);
             const exists = entry.children.some((c) => c.name === childName);
             if (exists) {
               new import_obsidian.Notice("子技能已存在：" + childName);
@@ -602,7 +645,8 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
                 });
               }
               this.expandedSkills.add(getSkillKey(entry.parentName, entry.name));
-              this.plugin.saveSettings();
+              this.plugin.saveSettings().catch((err) => {
+              });
               new import_obsidian.Notice("已添加子技能：" + childName);
               this.renderView();
               return;
@@ -627,13 +671,13 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
     if (entry.files.length === 0) {
       const createBtn = actionGroup.createEl("span", { cls: "pd-create-note-btn" });
       createBtn.title = "创建新笔记";
-      createBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>`;
+      createIcon(createBtn, ICONS.createNote);
       createBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         try {
           const fileName = entry.name + ".md";
           const existing = this.app.vault.getAbstractFileByPath(fileName);
-          if (existing) {
+          if (existing && existing instanceof import_obsidian.TFile) {
             await this.app.workspace.getLeaf(true).openFile(existing);
             return;
           }
@@ -661,7 +705,7 @@ skill-progress: ${entry.progress}
     }
     const attachBtn = actionGroup.createEl("span", { cls: "pd-attach-btn" });
     attachBtn.title = "添加已有笔记";
-    attachBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>`;
+    createIcon(attachBtn, ICONS.attach);
     attachBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       new PickNoteModal(this.app, this.plugin, skillKey, () => {
@@ -670,21 +714,22 @@ skill-progress: ${entry.progress}
     });
     const startDate = this.plugin.data.skillStartDates[skillKey];
     const endDate = this.plugin.data.skillEndDates[skillKey];
-    const createDateBtn = (type, value, title, icon) => {
+    const createDateBtn = (type, value, title, iconParts) => {
       const btn = actionGroup.createEl("span", { cls: "pd-date-btn" });
       btn.title = title;
-      const dateText = value ? `<span class="pd-date-text">${value.slice(5)}</span>` : "";
-      btn.innerHTML = dateText + icon;
+      if (value) {
+        btn.createEl("span", { cls: "pd-date-text", text: value.slice(5) });
+      }
+      createIcon(btn, iconParts);
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        const input = document.createElement("input");
+        const input = btn.createEl("input", { cls: "pd-date-input-hidden" });
         input.type = "date";
         input.value = value || "";
-        input.style.position = "absolute";
-        input.style.opacity = "0";
-        input.style.pointerEvents = "none";
-        btn.appendChild(input);
-        input.showPicker();
+        const inputEl = input;
+        if (typeof inputEl.showPicker === "function") {
+          inputEl.showPicker();
+        }
         input.addEventListener("change", async () => {
           if (type === "start") {
             if (input.value) {
@@ -706,13 +751,11 @@ skill-progress: ${entry.progress}
       });
       return btn;
     };
-    const startIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
-    const endIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
-    createDateBtn("start", startDate, startDate ? "修改开始日期" : "添加开始日期", startIcon);
-    createDateBtn("end", endDate, endDate ? "修改结束日期" : "添加结束日期", endIcon);
+    createDateBtn("start", startDate, startDate ? "修改开始日期" : "添加开始日期", ICONS.clock);
+    createDateBtn("end", endDate, endDate ? "修改结束日期" : "添加结束日期", ICONS.checkCircle);
     const delBtn = actionGroup.createEl("span", { cls: "pd-del-btn" });
     delBtn.title = "删除此技能";
-    delBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`;
+    createIcon(delBtn, ICONS.trash);
     delBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       const skillK = getSkillKey(entry.parentName, entry.name);
@@ -762,7 +805,8 @@ skill-progress: ${entry.progress}
           (cs) => cs.name !== entry.name
         );
       }
-      this.plugin.saveSettings();
+      this.plugin.saveSettings().catch((err) => {
+      });
       this.renderView();
     });
     if (entry.children.length > 0) {
@@ -798,6 +842,28 @@ skill-progress: ${entry.progress}
       return "pd-level-low";
     return "pd-level-none";
   }
+  getColorClassByProgress(p) {
+    if (p >= 100)
+      return "pd-color-done";
+    if (p >= 67)
+      return "pd-color-high";
+    if (p >= 34)
+      return "pd-color-mid";
+    if (p > 0)
+      return "pd-color-low";
+    return "pd-color-faint";
+  }
+  getFillClassByProgress(p) {
+    if (p >= 100)
+      return "pd-fill-done";
+    if (p >= 67)
+      return "pd-fill-high";
+    if (p >= 34)
+      return "pd-fill-mid";
+    if (p > 0)
+      return "pd-fill-low";
+    return "pd-fill-none";
+  }
   updateParentProgress(parentName) {
     const parent = this.entries.find((e) => e.name === parentName && !e.parentName);
     if (!parent || parent.children.length === 0)
@@ -806,7 +872,6 @@ skill-progress: ${entry.progress}
     const avg = Math.round(total / parent.children.length);
     parent.progress = avg;
   }
-  /* 拖动子技能时，实时更新父技能的进度条 UI（不重新渲染整个视图） */
   refreshParentUI(parentName) {
     const parent = this.entries.find((e) => e.name === parentName && !e.parentName);
     if (!parent)
@@ -821,13 +886,13 @@ skill-progress: ${entry.progress}
     const pct = parent.progress;
     if (barFill) {
       barFill.style.width = pct + "%";
-      barFill.style.background = this.getGradientByProgress(pct);
+      barFill.className = "pd-bar-fill " + this.getFillClassByProgress(pct);
     }
     if (handle)
       handle.style.left = pct + "%";
     if (pctEl) {
       pctEl.setText(pct + "%");
-      pctEl.style.color = this.getColorByProgress(pct);
+      pctEl.className = "pd-pct-inline " + this.getColorClassByProgress(pct);
     }
     if (levelBadge) {
       levelBadge.setText(this.getLevelText(pct));
@@ -836,10 +901,10 @@ skill-progress: ${entry.progress}
   }
   buildEntries() {
     const noteMap = /* @__PURE__ */ new Map();
-    const appAny = this.app;
     const vaults = [this.app.vault];
-    if (appAny.vaults && Array.isArray(appAny.vaults)) {
-      for (const v of appAny.vaults) {
+    const appWithVaults = this.app;
+    if (appWithVaults.vaults && Array.isArray(appWithVaults.vaults)) {
+      for (const v of appWithVaults.vaults) {
         if (v !== this.app.vault)
           vaults.push(v);
       }
@@ -883,7 +948,7 @@ skill-progress: ${entry.progress}
       }
     }
     for (const [key, paths] of Object.entries(this.plugin.data.attachedNotes)) {
-      let attFiles = [];
+      const attFiles = [];
       const excludedPaths = this.plugin.data.excludedNotes[key] || [];
       for (const p of paths) {
         if (excludedPaths.includes(p))
@@ -906,16 +971,15 @@ skill-progress: ${entry.progress}
       }
     }
     const collectNoteData = (keys) => {
-      let latest = null;
-      const allFiles2 = [];
+      const allCollectedFiles = [];
       let anyHasExplicit = false;
       let maxProgress = 0;
       for (const key of keys) {
         const data = noteMap.get(key);
         if (data) {
           for (const f of data.files) {
-            if (!allFiles2.some((af) => af.path === f.path)) {
-              allFiles2.push(f);
+            if (!allCollectedFiles.some((af) => af.path === f.path)) {
+              allCollectedFiles.push(f);
             }
           }
           if (data.hasExplicitProgress) {
@@ -923,14 +987,11 @@ skill-progress: ${entry.progress}
             if (data.progress > maxProgress)
               maxProgress = data.progress;
           }
-          if (!latest || data.files[data.files.length - 1].stat.mtime > latest.file.stat.mtime) {
-            latest = { progress: data.progress, file: data.files[data.files.length - 1], hasExplicitProgress: data.hasExplicitProgress };
-          }
         }
       }
-      if (allFiles2.length === 0)
+      if (allCollectedFiles.length === 0)
         return null;
-      return { progress: anyHasExplicit ? maxProgress : 0, files: allFiles2, hasExplicitProgress: anyHasExplicit };
+      return { progress: anyHasExplicit ? maxProgress : 0, files: allCollectedFiles, hasExplicitProgress: anyHasExplicit };
     };
     const deletedSet = new Set(this.plugin.data.deletedSkills);
     const entries = [];
@@ -1089,28 +1150,6 @@ skill-progress: ${entry.progress}
     }
     return arr;
   }
-  getColorByProgress(p) {
-    if (p >= 100)
-      return "#00e676";
-    if (p >= 67)
-      return "#00b0ff";
-    if (p >= 34)
-      return "#ffc107";
-    if (p > 0)
-      return "#ff9100";
-    return "var(--text-faint)";
-  }
-  getGradientByProgress(p) {
-    if (p >= 100)
-      return "linear-gradient(90deg, #00c853, #00e676)";
-    if (p >= 67)
-      return "linear-gradient(90deg, #0091ea, #00b0ff, #40c4ff)";
-    if (p >= 34)
-      return "linear-gradient(90deg, #ffa000, #ffc107, #ffe082)";
-    if (p > 0)
-      return "linear-gradient(90deg, #e65100, #ff9100, #ffab40)";
-    return "transparent";
-  }
 };
 var ConfirmModal = class extends import_obsidian.Modal {
   constructor(app, title, message, onConfirm) {
@@ -1123,32 +1162,11 @@ var ConfirmModal = class extends import_obsidian.Modal {
     const { contentEl } = this;
     contentEl.addClass("pd-modal");
     contentEl.createEl("h3", { text: this.title });
-    const msgEl = contentEl.createEl("div");
-    msgEl.style.marginBottom = "20px";
-    msgEl.style.whiteSpace = "pre-line";
-    msgEl.style.color = "var(--text-normal)";
-    msgEl.style.fontSize = "14px";
-    msgEl.textContent = this.message;
+    contentEl.createEl("div", { cls: "pd-modal-msg", text: this.message });
     const btnRow = contentEl.createDiv("pd-modal-btns");
-    btnRow.style.display = "flex";
-    btnRow.style.justifyContent = "flex-end";
-    btnRow.style.gap = "10px";
-    const cancelBtn = btnRow.createEl("button", { text: "取消" });
-    cancelBtn.style.padding = "8px 16px";
-    cancelBtn.style.borderRadius = "6px";
-    cancelBtn.style.border = "1px solid var(--background-modifier-border)";
-    cancelBtn.style.background = "var(--background-secondary)";
-    cancelBtn.style.color = "var(--text-normal)";
-    cancelBtn.style.cursor = "pointer";
+    const cancelBtn = btnRow.createEl("button", { text: "取消", cls: "pd-btn-cancel" });
     cancelBtn.addEventListener("click", () => this.close());
-    const confirmBtn = btnRow.createEl("button", { text: "确定", cls: "mod-cta" });
-    confirmBtn.style.padding = "8px 20px";
-    confirmBtn.style.borderRadius = "6px";
-    confirmBtn.style.border = "none";
-    confirmBtn.style.background = "var(--interactive-accent)";
-    confirmBtn.style.color = "var(--text-on-accent)";
-    confirmBtn.style.fontWeight = "600";
-    confirmBtn.style.cursor = "pointer";
+    const confirmBtn = btnRow.createEl("button", { text: "确定", cls: "pd-btn-confirm mod-cta" });
     confirmBtn.addEventListener("click", () => {
       this.onConfirm();
       this.close();
@@ -1168,78 +1186,31 @@ var AddSkillModal = class extends import_obsidian.Modal {
     contentEl.addClass("pd-modal");
     contentEl.createEl("h3", { text: "添加技能" });
     const catRow = contentEl.createDiv("pd-form-row");
-    catRow.style.marginBottom = "16px";
-    catRow.createEl("label", { text: "分类" }).style.display = "block";
+    catRow.createEl("label", { text: "分类", cls: "pd-form-label" });
     this.categoryInput = catRow.createEl("input", {
-      type: "text",
-      placeholder: "输入分类名称，如：技术、学习、生活"
+      cls: "pd-form-input",
+      attr: { type: "text", placeholder: "输入分类名称，如：技术、学习、生活" }
     });
-    this.categoryInput.style.width = "100%";
-    this.categoryInput.style.padding = "8px 12px";
-    this.categoryInput.style.borderRadius = "6px";
-    this.categoryInput.style.border = "1px solid var(--background-modifier-border)";
-    this.categoryInput.style.background = "var(--background-secondary)";
-    this.categoryInput.style.color = "var(--text-normal)";
-    this.categoryInput.style.fontSize = "14px";
-    this.categoryInput.style.boxSizing = "border-box";
     const nameRow = contentEl.createDiv("pd-form-row");
-    nameRow.style.marginBottom = "16px";
-    nameRow.createEl("label", { text: "技能名称" }).style.display = "block";
+    nameRow.createEl("label", { text: "技能名称", cls: "pd-form-label" });
     this.nameInput = nameRow.createEl("input", {
-      type: "text",
-      placeholder: "输入技能/项目名称"
-    });
-    this.nameInput.style.width = "100%";
-    this.nameInput.style.padding = "8px 12px";
-    this.nameInput.style.borderRadius = "6px";
-    this.nameInput.style.border = "1px solid var(--background-modifier-border)";
-    this.nameInput.style.background = "var(--background-secondary)";
-    this.nameInput.style.color = "var(--text-normal)";
-    this.nameInput.style.fontSize = "14px";
-    this.nameInput.style.boxSizing = "border-box";
-    this.nameInput.addEventListener("input", () => {
+      cls: "pd-form-input",
+      attr: { type: "text", placeholder: "输入技能/项目名称" }
     });
     const descRow = contentEl.createDiv("pd-form-row");
-    descRow.style.marginBottom = "20px";
-    descRow.createEl("label", { text: "技能描述" }).style.display = "block";
-    const descHint = descRow.createEl("div", { text: "简要描述（可选）。用顿号/逗号分隔可拆为子技能" });
-    descHint.style.fontSize = "12px";
-    descHint.style.color = "var(--text-faint)";
+    descRow.createEl("label", { text: "技能描述", cls: "pd-form-label" });
+    descRow.createEl("div", { text: "简要描述（可选）。用顿号/逗号分隔可拆为子技能", cls: "pd-form-hint" });
     this.descInput = descRow.createEl("input", {
-      type: "text",
-      placeholder: "简要描述..."
+      cls: "pd-form-input",
+      attr: { type: "text", placeholder: "简要描述..." }
     });
-    this.descInput.style.width = "100%";
-    this.descInput.style.padding = "8px 12px";
-    this.descInput.style.borderRadius = "6px";
-    this.descInput.style.border = "1px solid var(--background-modifier-border)";
-    this.descInput.style.background = "var(--background-secondary)";
-    this.descInput.style.color = "var(--text-normal)";
-    this.descInput.style.fontSize = "14px";
-    this.descInput.style.boxSizing = "border-box";
     const btnRow = contentEl.createDiv("pd-modal-btns");
-    btnRow.style.display = "flex";
-    btnRow.style.justifyContent = "flex-end";
-    btnRow.style.gap = "10px";
-    const cancelBtn = btnRow.createEl("button", { text: "取消" });
-    cancelBtn.style.padding = "8px 16px";
-    cancelBtn.style.borderRadius = "6px";
-    cancelBtn.style.border = "1px solid var(--background-modifier-border)";
-    cancelBtn.style.background = "var(--background-secondary)";
-    cancelBtn.style.color = "var(--text-normal)";
-    cancelBtn.style.cursor = "pointer";
+    const cancelBtn = btnRow.createEl("button", { text: "取消", cls: "pd-btn-cancel" });
     cancelBtn.addEventListener("click", () => this.close());
     const submitBtn = btnRow.createEl("button", {
       text: "添加",
-      cls: "mod-cta"
+      cls: "pd-btn-confirm mod-cta"
     });
-    submitBtn.style.padding = "8px 20px";
-    submitBtn.style.borderRadius = "6px";
-    submitBtn.style.border = "none";
-    submitBtn.style.background = "var(--interactive-accent)";
-    submitBtn.style.color = "var(--text-on-accent)";
-    submitBtn.style.fontWeight = "600";
-    submitBtn.style.cursor = "pointer";
     submitBtn.addEventListener("click", () => {
       const name = this.nameInput.value.trim();
       const desc = this.descInput.value.trim() || "自定义技能";
@@ -1290,77 +1261,31 @@ var PickNoteModal = class extends import_obsidian.Modal {
     contentEl.addClass("pd-modal");
     contentEl.createEl("h3", { text: "添加已有笔记到技能" });
     const toolbar = contentEl.createDiv("pd-pick-toolbar");
-    toolbar.style.display = "flex";
-    toolbar.style.alignItems = "center";
-    toolbar.style.gap = "8px";
-    toolbar.style.marginBottom = "10px";
-    toolbar.style.flexWrap = "wrap";
     this.searchInput = toolbar.createEl("input", {
-      type: "text",
-      placeholder: "搜索笔记名称或路径...",
-      cls: "pd-pick-search"
+      cls: "pd-pick-search",
+      attr: { type: "text", placeholder: "搜索笔记名称或路径..." }
     });
-    this.searchInput.style.flex = "1";
-    this.searchInput.style.minWidth = "150px";
-    this.searchInput.style.padding = "6px 10px";
-    this.searchInput.style.borderRadius = "6px";
-    this.searchInput.style.border = "1px solid var(--background-modifier-border)";
-    this.searchInput.style.background = "var(--background-secondary)";
-    this.searchInput.style.color = "var(--text-normal)";
-    this.searchInput.style.fontSize = "13px";
-    this.searchInput.style.boxSizing = "border-box";
-    const sortLabel = toolbar.createEl("span", { text: "排序：" });
-    sortLabel.style.fontSize = "12px";
-    sortLabel.style.color = "var(--text-faint)";
-    const sortSelect = toolbar.createEl("select");
-    sortSelect.style.padding = "5px 8px";
-    sortSelect.style.borderRadius = "6px";
-    sortSelect.style.border = "1px solid var(--background-modifier-border)";
-    sortSelect.style.background = "var(--background-secondary)";
-    sortSelect.style.color = "var(--text-normal)";
-    sortSelect.style.fontSize = "12px";
-    sortSelect.style.cursor = "pointer";
-    const opt1 = document.createElement("option");
-    opt1.value = "time-desc";
-    opt1.text = "修改时间↓";
-    sortSelect.add(opt1);
-    const opt2 = document.createElement("option");
-    opt2.value = "time-asc";
-    opt2.text = "修改时间↑";
-    sortSelect.add(opt2);
-    const opt3 = document.createElement("option");
-    opt3.value = "name";
-    opt3.text = "名称排序";
-    sortSelect.add(opt3);
+    toolbar.createEl("span", { text: "排序：", cls: "pd-pick-sort-label" });
+    const sortSelect = toolbar.createEl("select", { cls: "pd-pick-sort" });
+    sortSelect.createEl("option", { value: "time-desc", text: "修改时间↓" });
+    sortSelect.createEl("option", { value: "time-asc", text: "修改时间↑" });
+    sortSelect.createEl("option", { value: "name", text: "名称排序" });
     sortSelect.value = this.sortMode;
     sortSelect.addEventListener("change", () => {
       this.sortMode = sortSelect.value;
       this.buildFolderGroups();
       this.renderList(this.searchInput.value.toLowerCase().trim());
     });
-    const groupLabel = toolbar.createEl("span", { text: "按文件夹分组" });
-    groupLabel.style.fontSize = "12px";
-    groupLabel.style.color = "var(--text-faint)";
-    groupLabel.style.display = "flex";
-    groupLabel.style.alignItems = "center";
-    groupLabel.style.gap = "4px";
-    const groupCheckbox = toolbar.createEl("input", { type: "checkbox" });
+    toolbar.createEl("span", { text: "按文件夹分组", cls: "pd-pick-group-label" });
+    const groupCheckbox = toolbar.createEl("input", { cls: "pd-pick-checkbox", attr: { type: "checkbox" } });
     groupCheckbox.checked = this.groupByFolder;
-    groupCheckbox.style.cursor = "pointer";
     groupCheckbox.addEventListener("change", () => {
       this.groupByFolder = groupCheckbox.checked;
       if (this.groupByFolder)
         this.buildFolderGroups();
       this.renderList(this.searchInput.value.toLowerCase().trim());
     });
-    const selectAllBtn = toolbar.createEl("button", { text: "全选" });
-    selectAllBtn.style.padding = "4px 10px";
-    selectAllBtn.style.borderRadius = "6px";
-    selectAllBtn.style.border = "1px solid var(--background-modifier-border)";
-    selectAllBtn.style.background = "var(--background-secondary)";
-    selectAllBtn.style.color = "var(--text-normal)";
-    selectAllBtn.style.fontSize = "12px";
-    selectAllBtn.style.cursor = "pointer";
+    const selectAllBtn = toolbar.createEl("button", { text: "全选", cls: "pd-pick-btn" });
     selectAllBtn.title = "全选当前显示的笔记";
     selectAllBtn.addEventListener("click", () => {
       for (const f of this.currentVisibleFiles) {
@@ -1371,14 +1296,7 @@ var PickNoteModal = class extends import_obsidian.Modal {
       }
       this.renderList(this.searchInput.value.toLowerCase().trim());
     });
-    const invertBtn = toolbar.createEl("button", { text: "反选" });
-    invertBtn.style.padding = "4px 10px";
-    invertBtn.style.borderRadius = "6px";
-    invertBtn.style.border = "1px solid var(--background-modifier-border)";
-    invertBtn.style.background = "var(--background-secondary)";
-    invertBtn.style.color = "var(--text-normal)";
-    invertBtn.style.fontSize = "12px";
-    invertBtn.style.cursor = "pointer";
+    const invertBtn = toolbar.createEl("button", { text: "反选", cls: "pd-pick-btn" });
     invertBtn.title = "反选当前显示的笔记";
     invertBtn.addEventListener("click", () => {
       for (const f of this.currentVisibleFiles) {
@@ -1394,51 +1312,18 @@ var PickNoteModal = class extends import_obsidian.Modal {
       this.renderList(this.searchInput.value.toLowerCase().trim());
     });
     this.listEl = contentEl.createDiv("pd-pick-list");
-    this.listEl.style.maxHeight = "400px";
-    this.listEl.style.overflowY = "auto";
-    this.listEl.style.border = "1px solid var(--background-modifier-border)";
-    this.listEl.style.borderRadius = "8px";
-    this.listEl.style.background = "var(--background-primary)";
     this.collectFiles();
     if (this.groupByFolder)
       this.buildFolderGroups();
     this.footerEl = contentEl.createDiv("pd-pick-footer");
-    this.footerEl.style.display = "flex";
-    this.footerEl.style.alignItems = "center";
-    this.footerEl.style.justifyContent = "space-between";
-    this.footerEl.style.marginTop = "10px";
-    this.footerEl.style.padding = "10px";
-    this.footerEl.style.background = "var(--background-secondary)";
-    this.footerEl.style.borderRadius = "8px";
-    const selectInfo = this.footerEl.createEl("span");
-    selectInfo.style.fontSize = "12px";
-    selectInfo.style.color = "var(--text-faint)";
-    selectInfo.textContent = "已选择 0 个笔记";
-    const btnContainer = this.footerEl.createDiv();
-    btnContainer.style.display = "flex";
-    btnContainer.style.gap = "8px";
-    const clearBtn = btnContainer.createEl("button", { text: "清空选择" });
-    clearBtn.style.padding = "6px 12px";
-    clearBtn.style.borderRadius = "6px";
-    clearBtn.style.border = "1px solid var(--background-modifier-border)";
-    clearBtn.style.background = "var(--background-primary)";
-    clearBtn.style.color = "var(--text-faint)";
-    clearBtn.style.fontSize = "12px";
-    clearBtn.style.cursor = "pointer";
+    this.selectInfoEl = this.footerEl.createEl("span", { cls: "pd-pick-info", text: "已选择 0 个笔记" });
+    const btnContainer = this.footerEl.createDiv("pd-pick-btn-container");
+    const clearBtn = btnContainer.createEl("button", { text: "清空选择", cls: "pd-pick-clear" });
     clearBtn.addEventListener("click", () => {
       this.selectedPaths.clear();
       this.renderList(this.searchInput.value.toLowerCase().trim());
     });
-    this.confirmBtn = btnContainer.createEl("button", { text: "确认添加 (0)" });
-    this.confirmBtn.style.padding = "6px 16px";
-    this.confirmBtn.style.borderRadius = "6px";
-    this.confirmBtn.style.border = "none";
-    this.confirmBtn.style.background = "var(--interactive-accent)";
-    this.confirmBtn.style.color = "var(--text-on-accent)";
-    this.confirmBtn.style.fontSize = "13px";
-    this.confirmBtn.style.fontWeight = "600";
-    this.confirmBtn.style.cursor = "pointer";
-    this.confirmBtn.style.opacity = "0.5";
+    this.confirmBtn = btnContainer.createEl("button", { text: "确认添加 (0)", cls: "pd-pick-confirm mod-cta" });
     this.confirmBtn.addEventListener("click", () => {
       if (this.selectedPaths.size === 0)
         return;
@@ -1451,7 +1336,8 @@ var PickNoteModal = class extends import_obsidian.Modal {
         }
       }
       this.plugin.data.attachedNotes[this.skillKey] = current;
-      this.plugin.saveSettings();
+      this.plugin.saveSettings().catch((err) => {
+      });
       new import_obsidian.Notice(`已关联 ${added} 个笔记`);
       this.onPicked();
       this.close();
@@ -1465,18 +1351,19 @@ var PickNoteModal = class extends import_obsidian.Modal {
   }
   updateFooter() {
     const count = this.selectedPaths.size;
-    const info = this.footerEl.querySelector("span");
-    if (info) {
-      info.textContent = `已选择 ${count} 个笔记`;
+    this.selectInfoEl.setText(`已选择 ${count} 个笔记`);
+    this.confirmBtn.setText(`确认添加 (${count})`);
+    if (count > 0) {
+      this.confirmBtn.addClass("pd-pick-confirm-active");
+    } else {
+      this.confirmBtn.removeClass("pd-pick-confirm-active");
     }
-    this.confirmBtn.textContent = `确认添加 (${count})`;
-    this.confirmBtn.style.opacity = count > 0 ? "1" : "0.5";
   }
   collectFiles() {
-    const appAny = this.app;
     const vaults = [this.app.vault];
-    if (appAny.vaults && Array.isArray(appAny.vaults)) {
-      for (const v of appAny.vaults) {
+    const appWithVaults = this.app;
+    if (appWithVaults.vaults && Array.isArray(appWithVaults.vaults)) {
+      for (const v of appWithVaults.vaults) {
         if (v !== this.app.vault)
           vaults.push(v);
       }
@@ -1605,34 +1492,13 @@ var PickNoteModal = class extends import_obsidian.Modal {
     });
     for (const [folderPath, groupFiles] of sortedFolders) {
       const folderSection = this.listEl.createDiv("pd-pick-folder-section");
-      folderSection.style.marginBottom = "8px";
       const folderHeader = folderSection.createDiv("pd-pick-folder-header");
-      folderHeader.style.display = "flex";
-      folderHeader.style.alignItems = "center";
-      folderHeader.style.gap = "6px";
-      folderHeader.style.padding = "6px 10px";
-      folderHeader.style.background = "var(--background-secondary)";
-      folderHeader.style.borderRadius = "6px";
-      folderHeader.style.cursor = "pointer";
-      folderHeader.style.userSelect = "none";
-      folderHeader.style.transition = "background 0.15s";
-      const folderIcon = folderHeader.createEl("span");
+      const folderIcon = folderHeader.createEl("span", { cls: "pd-pick-folder-icon" });
       const isExpanded = !this.folderToggleState.has(folderPath);
-      folderIcon.innerHTML = isExpanded ? `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>` : `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`;
+      createIcon(folderIcon, isExpanded ? ICONS.chevronDown : ICONS.chevronRight, 14);
       const displayName = folderPath === "/" ? "根目录" : folderPath;
-      const folderNameEl = folderHeader.createEl("span", { text: displayName });
-      folderNameEl.style.fontSize = "13px";
-      folderNameEl.style.fontWeight = "600";
-      folderNameEl.style.flex = "1";
-      folderNameEl.style.overflow = "hidden";
-      folderNameEl.style.textOverflow = "ellipsis";
-      folderNameEl.style.whiteSpace = "nowrap";
-      const count = folderHeader.createEl("span", { text: `${groupFiles.length}` });
-      count.style.fontSize = "11px";
-      count.style.color = "var(--text-faint)";
-      count.style.background = "var(--background-modifier-border)";
-      count.style.padding = "1px 6px";
-      count.style.borderRadius = "10px";
+      folderHeader.createEl("span", { text: displayName, cls: "pd-pick-folder-name" });
+      folderHeader.createEl("span", { text: `${groupFiles.length}`, cls: "pd-pick-folder-count" });
       folderHeader.addEventListener("click", () => {
         if (this.folderToggleState.has(folderPath)) {
           this.folderToggleState.delete(folderPath);
@@ -1644,8 +1510,6 @@ var PickNoteModal = class extends import_obsidian.Modal {
       if (!isExpanded)
         continue;
       const fileList = folderSection.createDiv("pd-pick-file-list");
-      fileList.style.paddingLeft = "16px";
-      fileList.style.marginTop = "4px";
       for (const file of groupFiles) {
         this.createFileItem(fileList, file, existingPaths);
       }
@@ -1655,25 +1519,11 @@ var PickNoteModal = class extends import_obsidian.Modal {
     const withSkill = files.filter((f) => this.hasSkillProperty(f));
     const withoutSkill = files.filter((f) => !this.hasSkillProperty(f));
     if (withSkill.length > 0 && !this.searchInput.value) {
-      const sectionLabel = this.listEl.createDiv();
-      sectionLabel.style.padding = "6px 10px";
-      sectionLabel.style.fontSize = "11px";
-      sectionLabel.style.color = "var(--interactive-accent)";
-      sectionLabel.style.fontWeight = "600";
-      sectionLabel.style.background = "rgba(var(--interactive-accent-rgb), 0.08)";
-      sectionLabel.style.borderBottom = "1px solid var(--background-modifier-border)";
-      sectionLabel.textContent = `📋 已有技能关联的笔记（${withSkill.length}）`;
+      this.listEl.createEl("div", { cls: "pd-pick-section-skill", text: `📋 已有技能关联的笔记（${withSkill.length}）` });
       for (const file of withSkill) {
         this.createFileItem(this.listEl, file, existingPaths);
       }
-      const sectionLabel2 = this.listEl.createDiv();
-      sectionLabel2.style.padding = "6px 10px";
-      sectionLabel2.style.fontSize = "11px";
-      sectionLabel2.style.color = "var(--text-faint)";
-      sectionLabel2.style.fontWeight = "600";
-      sectionLabel2.style.background = "var(--background-secondary)";
-      sectionLabel2.style.borderBottom = "1px solid var(--background-modifier-border)";
-      sectionLabel2.textContent = `📝 其他笔记（${withoutSkill.length}）`;
+      this.listEl.createEl("div", { cls: "pd-pick-section-other", text: `📝 其他笔记（${withoutSkill.length}）` });
     }
     const filesToRender = this.searchInput.value ? files : withoutSkill.length > 0 ? withoutSkill : files;
     for (const file of filesToRender) {
@@ -1684,51 +1534,21 @@ var PickNoteModal = class extends import_obsidian.Modal {
     const isExisting = existingPaths.has(file.path);
     const isSelected = this.selectedPaths.has(file.path);
     const item = parent.createDiv("pd-pick-item");
-    item.style.display = "flex";
-    item.style.alignItems = "center";
-    item.style.gap = "8px";
-    item.style.padding = "6px 10px";
-    item.style.cursor = isExisting ? "not-allowed" : "pointer";
-    item.style.borderBottom = "1px solid var(--background-modifier-border)";
-    item.style.fontSize = "13px";
-    item.style.borderRadius = "4px";
-    item.style.transition = "background 0.15s";
+    if (isExisting)
+      item.addClass("pd-pick-item-existing");
+    if (isSelected)
+      item.addClass("pd-pick-item-selected");
     item.setAttribute("data-path", file.path);
-    if (isSelected) {
-      item.style.background = "rgba(var(--interactive-accent-rgb), 0.15)";
-      item.style.borderLeft = "3px solid var(--interactive-accent)";
-    }
-    const checkbox = item.createEl("input", { type: "checkbox" });
-    checkbox.style.width = "16px";
-    checkbox.style.height = "16px";
-    checkbox.style.cursor = isExisting ? "not-allowed" : "pointer";
-    checkbox.style.flexShrink = "0";
+    const checkbox = item.createEl("input", { cls: "pd-pick-item-checkbox", attr: { type: "checkbox" } });
     checkbox.checked = isSelected;
     checkbox.disabled = isExisting;
-    const nameSpan = item.createEl("span", { text: file.basename });
-    nameSpan.style.flex = "1";
-    nameSpan.style.overflow = "hidden";
-    nameSpan.style.textOverflow = "ellipsis";
-    nameSpan.style.whiteSpace = "nowrap";
+    item.createEl("span", { text: file.basename, cls: "pd-pick-item-name" });
     if (this.hasSkillProperty(file)) {
-      const skillTag = item.createEl("span", { text: "⚡ 已关联技能" });
-      skillTag.style.fontSize = "10px";
-      skillTag.style.color = "var(--interactive-accent)";
-      skillTag.style.background = "rgba(var(--interactive-accent-rgb), 0.12)";
-      skillTag.style.padding = "1px 6px";
-      skillTag.style.borderRadius = "4px";
-      skillTag.style.flexShrink = "0";
+      item.createEl("span", { text: "⚡ 已关联技能", cls: "pd-pick-item-skill" });
     }
-    const timeSpan = item.createEl("span", { text: this.formatDate(file.stat.mtime) });
-    timeSpan.style.fontSize = "10px";
-    timeSpan.style.color = "var(--text-faint)";
-    timeSpan.style.flexShrink = "0";
+    item.createEl("span", { text: this.formatDate(file.stat.mtime), cls: "pd-pick-item-time" });
     if (isExisting) {
-      item.style.opacity = "0.5";
-      const tag = item.createEl("span", { text: "✓ 已添加" });
-      tag.style.fontSize = "10px";
-      tag.style.color = "var(--text-faint)";
-      tag.style.flexShrink = "0";
+      item.createEl("span", { text: "✓ 已添加", cls: "pd-pick-item-tag" });
     }
     const handleSelect = (e) => {
       e.stopPropagation();
@@ -1760,17 +1580,6 @@ var PickNoteModal = class extends import_obsidian.Modal {
     };
     checkbox.addEventListener("change", handleSelect);
     item.addEventListener("click", handleSelect);
-    item.addEventListener("mouseenter", () => {
-      if (!isExisting && !isSelected) {
-        item.style.background = "var(--background-modifier-hover)";
-      }
-    });
-    item.addEventListener("mouseleave", () => {
-      if (!isSelected) {
-        item.style.background = "";
-        item.style.borderLeft = "";
-      }
-    });
   }
   onClose() {
     this.contentEl.empty();
