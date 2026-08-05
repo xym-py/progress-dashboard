@@ -1,9 +1,9 @@
 {
 	"id": "progress-dashboard",
-	"name": "progress-dashboard",
+	"name": "Progress Dashboard",
 	"version": "1.0.0",
 	"minAppVersion": "1.0.0",
-	"description": "一个可视化展示学习技能进度的插件，通过笔记YAML字段自动关联技能，支持手动拖动调整进度",
+	"description": "A plugin for visualizing learning skill progress, auto-links skills via note YAML fields, supports manual drag to adjust progress",
 	"author": "xym-py",
 	"isDesktopOnly": false,
 	"repo": "https://github.com/xym-py/progress-dashboard"
