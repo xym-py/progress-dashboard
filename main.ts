@@ -206,7 +206,7 @@ export default class ProgressDashboardPlugin extends Plugin {
 					this.data.skillStartDates[k] = v;
 				}
 			}
-			delete (loadedData as Record<string, unknown>)["skillDates"];
+			delete loadedData["skillDates"];
 		}
 
 		/* 数据清理：去除重复的置顶分类 */
@@ -230,7 +230,7 @@ export default class ProgressDashboardPlugin extends Plugin {
 	async activateView() {
 		const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PROGRESS);
 		if (existing.length > 0) {
-			void this.app.workspace.revealLeaf(existing[0]);
+			await this.app.workspace.revealLeaf(existing[0]);
 			return;
 		}
 		const leaf = this.app.workspace.getLeaf("tab");
@@ -238,7 +238,7 @@ export default class ProgressDashboardPlugin extends Plugin {
 			type: VIEW_TYPE_PROGRESS,
 			active: true,
 		});
-		void this.app.workspace.revealLeaf(leaf);
+		await this.app.workspace.revealLeaf(leaf);
 	}
 }
 
@@ -275,7 +275,7 @@ class ProgressDashboardView extends ItemView {
 		const cleanup = this.plugin.viewCleanup;
 		if (cleanup && Array.isArray(cleanup)) {
 			for (const fn of cleanup) {
-				try { fn(); } catch (_e: unknown) { /* ignore */ }
+				try { fn(); } catch { /* ignore */ }
 			}
 			this.plugin.viewCleanup = [];
 		}
@@ -780,7 +780,7 @@ class ProgressDashboardView extends ItemView {
 					const newFile = await this.app.vault.create(fileName, frontmatter);
 					await this.app.workspace.getLeaf(true).openFile(newFile);
 					this.renderView();
-				} catch (err) {
+				} catch (err: unknown) {
 					new Notice("创建笔记失败: " + String(err));
 				}
 			});

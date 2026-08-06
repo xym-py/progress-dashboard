@@ -1,8 +1,8 @@
 {
 	"id": "progress-dashboard",
 	"name": "progress-dashboard",
-	"version": "1.0.3",
-	"minAppVersion": "1.7.0",
+	"version": "1.0.4",
+	"minAppVersion": "1.8.0",
 	"description": "Track skill progress with interactive dashboards. Auto-link skills via note YAML fields. Drag to adjust progress.",
 	"author": "xym-py",
 	"isDesktopOnly": false

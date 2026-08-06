@@ -194,7 +194,7 @@ var ProgressDashboardPlugin = class extends import_obsidian.Plugin {
   async activateView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PROGRESS);
     if (existing.length > 0) {
-      void this.app.workspace.revealLeaf(existing[0]);
+      await this.app.workspace.revealLeaf(existing[0]);
       return;
     }
     const leaf = this.app.workspace.getLeaf("tab");
@@ -202,7 +202,7 @@ var ProgressDashboardPlugin = class extends import_obsidian.Plugin {
       type: VIEW_TYPE_PROGRESS,
       active: true
     });
-    void this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
   }
 };
 var ProgressDashboardView = class extends import_obsidian.ItemView {
@@ -232,7 +232,7 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
       for (const fn of cleanup) {
         try {
           fn();
-        } catch (_e) {
+        } catch (e) {
         }
       }
       this.plugin.viewCleanup = [];
