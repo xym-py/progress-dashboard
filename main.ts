@@ -6,6 +6,7 @@ import {
 	TFile,
 	Notice,
 	Modal,
+	setIcon,
 } from "obsidian";
 
 const VIEW_TYPE_PROGRESS = "progress-dashboard-view";
@@ -30,6 +31,7 @@ interface CustomSkill {
 	name: string;
 	desc: string;
 	category: string;
+	children?: string[];
 }
 
 interface PluginData {
@@ -75,76 +77,6 @@ function isOnlyPunct(s: string): boolean {
 function getSkillKey(parent: string | null, name: string): string {
 	return parent ? `${parent}/${name}` : name;
 }
-
-/* ===== SVG 图标创建辅助函数（使用 createElementNS，安全） ===== */
-interface SvgPart {
-	tag: string;
-	attrs: Record<string, string>;
-}
-
-const SVG_NS = "http://www.w3.org/2000/svg";
-
-function createIcon(parent: HTMLElement, parts: SvgPart[], size = 16): SVGElement {
-	const svg = document.createElementNS(SVG_NS, "svg");
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("width", String(size));
-	svg.setAttribute("height", String(size));
-	svg.setAttribute("fill", "none");
-	svg.setAttribute("stroke", "currentColor");
-	svg.setAttribute("stroke-width", "2");
-	svg.setAttribute("stroke-linecap", "round");
-	svg.setAttribute("stroke-linejoin", "round");
-	for (const part of parts) {
-		const el = document.createElementNS(SVG_NS, part.tag);
-		for (const [k, v] of Object.entries(part.attrs)) {
-			el.setAttribute(k, v);
-		}
-		svg.appendChild(el);
-	}
-	parent.appendChild(svg);
-	return svg;
-}
-
-const ICONS: Record<string, SvgPart[]> = {
-	chevronDown: [{ tag: "polyline", attrs: { points: "6 9 12 15 18 9" } }],
-	chevronRight: [{ tag: "polyline", attrs: { points: "9 6 15 12 9 18" } }],
-	close: [
-		{ tag: "line", attrs: { x1: "18", y1: "6", x2: "6", y2: "18" } },
-		{ tag: "line", attrs: { x1: "6", y1: "6", x2: "18", y2: "18" } },
-	],
-	pin: [
-		{ tag: "path", attrs: { d: "M12 17v5" } },
-		{ tag: "path", attrs: { d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" } },
-	],
-	plus: [
-		{ tag: "line", attrs: { x1: "12", y1: "5", x2: "12", y2: "19" } },
-		{ tag: "line", attrs: { x1: "5", y1: "12", x2: "19", y2: "12" } },
-	],
-	createNote: [
-		{ tag: "path", attrs: { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" } },
-		{ tag: "polyline", attrs: { points: "14 2 14 8 20 8" } },
-		{ tag: "line", attrs: { x1: "12", y1: "18", x2: "12", y2: "12" } },
-		{ tag: "line", attrs: { x1: "9", y1: "15", x2: "15", y2: "15" } },
-	],
-	attach: [
-		{ tag: "path", attrs: { d: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" } },
-	],
-	clock: [
-		{ tag: "circle", attrs: { cx: "12", cy: "12", r: "10" } },
-		{ tag: "polyline", attrs: { points: "12 6 12 12 16 14" } },
-	],
-	checkCircle: [
-		{ tag: "path", attrs: { d: "M22 11.08V12a10 10 0 1 1-5.93-9.14" } },
-		{ tag: "polyline", attrs: { points: "22 4 12 14.01 9 11.01" } },
-	],
-	trash: [
-		{ tag: "polyline", attrs: { points: "3 6 5 6 21 6" } },
-		{ tag: "path", attrs: { d: "M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" } },
-		{ tag: "path", attrs: { d: "M10 11v6" } },
-		{ tag: "path", attrs: { d: "M14 11v6" } },
-		{ tag: "path", attrs: { d: "M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" } },
-	],
-};
 
 /* ===== 插件主体 ===== */
 export default class ProgressDashboardPlugin extends Plugin {
@@ -422,7 +354,7 @@ class ProgressDashboardView extends ItemView {
 			const isCatPinned = pinnedCats.has(cat.category);
 			const catPinBtn = catHeader.createEl("span", { cls: "pd-cat-pin-btn" + (isCatPinned ? " pd-pin-active" : "") });
 			catPinBtn.title = isCatPinned ? "取消置顶分类" : "置顶分类";
-			createIcon(catPinBtn, ICONS.pin, 14);
+			setIcon(catPinBtn, "pin");
 			catPinBtn.addEventListener("click", () => {
 				if (isCatPinned) {
 					this.plugin.data.pinnedCategories = this.plugin.data.pinnedCategories.filter((c) => c !== cat.category);
@@ -480,7 +412,7 @@ class ProgressDashboardView extends ItemView {
 		if (entry.children.length > 0) {
 			const toggle = titleRow.createEl("span", { cls: "pd-toggle" });
 			const isExpanded = this.expandedSkills.has(getSkillKey(entry.parentName, entry.name));
-			createIcon(toggle, isExpanded ? ICONS.chevronDown : ICONS.chevronRight, 18);
+			setIcon(toggle, isExpanded ? "chevron-down" : "chevron-right");
 			toggle.addEventListener("click", (e) => {
 				e.stopPropagation();
 				const key = getSkillKey(entry.parentName, entry.name);
@@ -612,7 +544,7 @@ class ProgressDashboardView extends ItemView {
 				noteChip.createEl("span", { cls: "pd-note-name", text: file.basename });
 
 				const removeBtn = noteChip.createEl("span", { cls: "pd-note-remove" });
-				createIcon(removeBtn, ICONS.close, 10);
+				setIcon(removeBtn, "x");
 				removeBtn.title = "从技能中移除此笔记";
 
 				removeBtn.addEventListener("click", async (e) => {
@@ -688,7 +620,7 @@ class ProgressDashboardView extends ItemView {
 		if (!entry.parentName) {
 			const addChildBtn = actionGroup.createEl("span", { cls: "pd-add-child-btn" });
 			addChildBtn.title = "添加子技能";
-			createIcon(addChildBtn, ICONS.plus);
+			setIcon(addChildBtn, "plus");
 			addChildBtn.addClass("pd-btn-hidden");
 
 			row.addEventListener("mouseenter", () => {
@@ -719,16 +651,18 @@ class ProgressDashboardView extends ItemView {
 						} else {
 							let cs = this.plugin.data.customSkills.find((s) => s.name === entry.name);
 							if (cs) {
-								const existingChildren = parseChildren(cs.desc) || [];
-								if (!existingChildren.includes(childName)) {
-									existingChildren.push(childName);
-									cs.desc = existingChildren.join("、");
+								if (!cs.children || !Array.isArray(cs.children)) {
+									cs.children = parseChildren(cs.desc) || [];
+								}
+								if (!cs.children.includes(childName)) {
+									cs.children.push(childName);
 								}
 							} else {
 								this.plugin.data.customSkills.push({
 									name: entry.name,
-									desc: childName,
+									desc: "",
 									category: entry.category,
+									children: [childName],
 								});
 							}
 
@@ -763,7 +697,7 @@ class ProgressDashboardView extends ItemView {
 		if (entry.files.length === 0) {
 			const createBtn = actionGroup.createEl("span", { cls: "pd-create-note-btn" });
 			createBtn.title = "创建新笔记";
-			createIcon(createBtn, ICONS.createNote);
+			setIcon(createBtn, "file-plus");
 			createBtn.addEventListener("click", async (e) => {
 				e.stopPropagation();
 				try {
@@ -789,7 +723,7 @@ class ProgressDashboardView extends ItemView {
 		/* 添加已有笔记按钮 */
 		const attachBtn = actionGroup.createEl("span", { cls: "pd-attach-btn" });
 		attachBtn.title = "添加已有笔记";
-		createIcon(attachBtn, ICONS.attach);
+		setIcon(attachBtn, "paperclip");
 		attachBtn.addEventListener("click", (e) => {
 			e.stopPropagation();
 			new PickNoteModal(this.app, this.plugin, skillKey, () => {
@@ -805,14 +739,14 @@ class ProgressDashboardView extends ItemView {
 			type: "start" | "end",
 			value: string | undefined,
 			title: string,
-			iconParts: SvgPart[]
+			iconName: string
 		) => {
 			const btn = actionGroup.createEl("span", { cls: "pd-date-btn" });
 			btn.title = title;
 			if (value) {
 				btn.createEl("span", { cls: "pd-date-text", text: value.slice(5) });
 			}
-			createIcon(btn, iconParts);
+			setIcon(btn, iconName);
 
 			btn.addEventListener("click", (e) => {
 				e.stopPropagation();
@@ -845,13 +779,13 @@ class ProgressDashboardView extends ItemView {
 			return btn;
 		};
 
-		createDateBtn("start", startDate, startDate ? "修改开始日期" : "添加开始日期", ICONS.clock);
-		createDateBtn("end", endDate, endDate ? "修改结束日期" : "添加结束日期", ICONS.checkCircle);
+		createDateBtn("start", startDate, startDate ? "修改开始日期" : "添加开始日期", "clock");
+		createDateBtn("end", endDate, endDate ? "修改结束日期" : "添加结束日期", "circle-check");
 
 		/* 删除按钮 */
 		const delBtn = actionGroup.createEl("span", { cls: "pd-del-btn" });
 		delBtn.title = "删除此技能";
-		createIcon(delBtn, ICONS.trash);
+		setIcon(delBtn, "trash");
 		delBtn.addEventListener("click", (e) => {
 			e.stopPropagation();
 			const skillK = getSkillKey(entry.parentName, entry.name);
@@ -1094,7 +1028,9 @@ class ProgressDashboardView extends ItemView {
 			if (deletedSet.has(csKey)) continue;
 			const exists = entries.some((e) => e.name === cs.name && !e.parentName);
 			if (exists) continue;
-			const childrenNames = parseChildren(cs.desc);
+			const childrenNames = (cs.children && cs.children.length > 0)
+				? cs.children
+				: parseChildren(cs.desc);
 			if (childrenNames) {
 				const childEntries: SkillEntry[] = childrenNames.map((childName): SkillEntry | null => {
 					const childKey = getSkillKey(cs.name, childName);
@@ -1675,7 +1611,7 @@ class PickNoteModal extends Modal {
 			const folderHeader = folderSection.createDiv("pd-pick-folder-header");
 			const folderIcon = folderHeader.createEl("span", { cls: "pd-pick-folder-icon" });
 			const isExpanded = !this.folderToggleState.has(folderPath);
-			createIcon(folderIcon, isExpanded ? ICONS.chevronDown : ICONS.chevronRight, 14);
+			setIcon(folderIcon, isExpanded ? "chevron-down" : "chevron-right");
 
 			const displayName = folderPath === "/" ? "根目录" : folderPath;
 			folderHeader.createEl("span", { text: displayName, cls: "pd-pick-folder-name" });
