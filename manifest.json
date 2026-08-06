@@ -1,9 +1,9 @@
 {
 	"id": "progress-dashboard",
 	"name": "progress-dashboard",
-	"version": "1.0.2",
-	"minAppVersion": "1.5.0",
-	"description": "A plugin for visualizing learning skill progress, auto-links skills via note YAML fields, supports manual drag to adjust progress.",
+	"version": "1.0.3",
+	"minAppVersion": "1.7.0",
+	"description": "Track skill progress with interactive dashboards. Auto-link skills via note YAML fields. Drag to adjust progress.",
 	"author": "xym-py",
 	"isDesktopOnly": false
 }

@@ -11,16 +11,6 @@ import {
 const VIEW_TYPE_PROGRESS = "progress-dashboard-view";
 
 /* ===== 类型定义 ===== */
-interface BuiltinSkill {
-	name: string;
-	desc: string;
-}
-
-interface SkillCategory {
-	category: string;
-	skills: BuiltinSkill[];
-}
-
 interface SkillEntry {
 	name: string;
 	desc: string;
@@ -67,97 +57,6 @@ const DEFAULT_DATA: PluginData = {
 	skillStartDates: {},
 	skillEndDates: {},
 };
-
-/* ===== 内置技能数据 ===== */
-const SKILL_DATA: SkillCategory[] = [
-	{
-		category: "生存实用技能",
-		skills: [
-			{ name: "基础医疗", desc: "急救、包扎、基础注射" },
-			{ name: "生活烹饪", desc: "家常菜制作" },
-			{ name: "烘焙甜点制作", desc: "烘焙甜点制作" },
-			{ name: "手工编织", desc: "手链、中国结、十字绣" },
-			{ name: "消费维权", desc: "证据留存、各平台投诉渠道" },
-		],
-	},
-	{
-		category: "法律职场技能",
-		skills: [
-			{ name: "劳动合同法", desc: "劳动合同法相关法律常识" },
-			{ name: "Word文档排版", desc: "Word文档排版、公文写作" },
-			{ name: "Excel函数", desc: "Excel函数、数据统计、制作" },
-			{ name: "PPT美化", desc: "PPT美化、汇报逻辑搭建" },
-			{ name: "电脑快捷键", desc: "电脑全品类快捷键操作" },
-			{ name: "专业课深耕", desc: "专业课深耕，MOOC公开课补充学习" },
-			{ name: "通用证书", desc: "六级、驾照" },
-			{ name: "职业证书", desc: "教资、初会、游泳教练证" },
-			{ name: "Photoshop", desc: "Photoshop图片修图、平面设计" },
-			{ name: "Premiere", desc: "Premiere视频剪辑、成片产出" },
-			{ name: "After Effects", desc: "After Effects动态特效制作" },
-			{ name: "基础编程", desc: "基础编程入门学习" },
-			{ name: "考研考公", desc: "考研、考公全套备考规划" },
-			{ name: "学科竞赛", desc: "挑战杯等高含金量学科竞赛备赛" },
-		],
-	},
-	{
-		category: "财商金融",
-		skills: [
-			{ name: "基础理财", desc: "基础理财、可转债、股票入门实操" },
-			{ name: "货币金融知识", desc: "加息、降息、货币放水、资产定价" },
-			{ name: "宏观经济周期", desc: "债务周期、经济周期判断" },
-		],
-	},
-	{
-		category: "认知提升",
-		skills: [
-			{ name: "读书", desc: "心理学、社会学、逻辑学、管理学、博弈论" },
-			{ name: "视听拓展", desc: "纪录片、TED演讲" },
-			{ name: "外语视听", desc: "英剧、美剧、优质动漫" },
-			{ name: "棋类", desc: "象棋、围棋、国际象棋" },
-			{ name: "环球义工旅行", desc: "年满18岁寒暑假参与" },
-		],
-	},
-	{
-		category: "运动健身",
-		skills: [
-			{ name: "季节运动", desc: "轮滑（夏季）、冰刀（冬季）" },
-			{ name: "团队球类", desc: "篮球、排球、足球" },
-			{ name: "休闲小球类", desc: "乒乓、羽毛球、网球" },
-			{ name: "小众球类", desc: "台球、高尔夫、保龄球、橄榄球、冰壶" },
-			{ name: "塑形舒缓", desc: "瑜伽、普拉提" },
-			{ name: "防身格斗", desc: "武术、散打、拳击、摔跤" },
-			{ name: "武道项目", desc: "跆拳道、柔道、剑道" },
-			{ name: "潮流运动", desc: "滑板" },
-			{ name: "基础体能", desc: "田径、骑行、跳绳、游泳" },
-			{ name: "户外休闲", desc: "潜水、登山、冲浪、蹦床、健美操" },
-			{ name: "小众体能", desc: "射击、射箭、举重" },
-			{ name: "健身房力量训练", desc: "健身房系统化常规力量训练" },
-		],
-	},
-	{
-		category: "艺术才艺",
-		skills: [
-			{ name: "绘画", desc: "素描、水彩、线描、油画" },
-			{ name: "硬笔练字", desc: "长期固定字体练习" },
-			{ name: "小语种语言", desc: "小语种语言学习" },
-			{ name: "声乐唱歌", desc: "音准气息控制" },
-			{ name: "主流乐器", desc: "吉他、钢琴、古筝、小提琴" },
-			{ name: "轻便小型乐器", desc: "拇指琴、竖笛、空灵鼓" },
-			{ name: "舞蹈", desc: "街舞、爵士、民族、拉丁、芭蕾" },
-			{ name: "休闲舞蹈", desc: "宅舞、基础交际舞" },
-			{ name: "美妆设计", desc: "日常完整妆容打造" },
-			{ name: "美甲美发", desc: "美甲、基础美发造型设计" },
-			{ name: "摄影", desc: "构图、人像、风光基础拍摄" },
-			{ name: "趣味才艺", desc: "魔术、魔方、魔板" },
-		],
-	},
-	{
-		category: "项目开发",
-		skills: [
-			{ name: "项目开发", desc: "插件、软件、代码" },
-		],
-	},
-];
 
 function parseChildren(desc: string): string[] | null {
 	if (!desc) return null;
@@ -331,7 +230,7 @@ export default class ProgressDashboardPlugin extends Plugin {
 	async activateView() {
 		const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PROGRESS);
 		if (existing.length > 0) {
-			this.app.workspace.revealLeaf(existing[0]);
+			void this.app.workspace.revealLeaf(existing[0]);
 			return;
 		}
 		const leaf = this.app.workspace.getLeaf("tab");
@@ -339,7 +238,7 @@ export default class ProgressDashboardPlugin extends Plugin {
 			type: VIEW_TYPE_PROGRESS,
 			active: true,
 		});
-		this.app.workspace.revealLeaf(leaf);
+		void this.app.workspace.revealLeaf(leaf);
 	}
 }
 
@@ -376,7 +275,7 @@ class ProgressDashboardView extends ItemView {
 		const cleanup = this.plugin.viewCleanup;
 		if (cleanup && Array.isArray(cleanup)) {
 			for (const fn of cleanup) {
-				try { fn(); } catch (e) { /* ignore */ }
+				try { fn(); } catch (_e: unknown) { /* ignore */ }
 			}
 			this.plugin.viewCleanup = [];
 		}
@@ -684,7 +583,7 @@ class ProgressDashboardView extends ItemView {
 			if (!isDragging) return;
 			isDragging = false;
 			if (rafId !== null) {
-				cancelAnimationFrame(rafId);
+				window.cancelAnimationFrame(rafId);
 				rafId = null;
 			}
 			const newProgress = updateUI(e.clientX);
@@ -699,7 +598,7 @@ class ProgressDashboardView extends ItemView {
 			document.removeEventListener("mousemove", onMove, true);
 			document.removeEventListener("mouseup", onUp, true);
 			const id = rafId;
-			if (id !== null) cancelAnimationFrame(id);
+			if (id !== null) window.cancelAnimationFrame(id);
 		};
 		this.plugin.viewCleanup.push(cleanup);
 
@@ -818,19 +717,6 @@ class ProgressDashboardView extends ItemView {
 						if (exists) {
 							new Notice("子技能已存在：" + childName);
 						} else {
-							const newChild: SkillEntry = {
-								name: childName,
-								desc: "",
-								category: entry.category,
-								progress: 0,
-								manualProgress: null,
-								noteProgress: null,
-								files: [],
-								hasNote: false,
-								parentName: entry.name,
-								children: [],
-							};
-
 							let cs = this.plugin.data.customSkills.find((s) => s.name === entry.name);
 							if (cs) {
 								const existingChildren = parseChildren(cs.desc) || [];

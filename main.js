@@ -194,7 +194,7 @@ var ProgressDashboardPlugin = class extends import_obsidian.Plugin {
   async activateView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PROGRESS);
     if (existing.length > 0) {
-      this.app.workspace.revealLeaf(existing[0]);
+      void this.app.workspace.revealLeaf(existing[0]);
       return;
     }
     const leaf = this.app.workspace.getLeaf("tab");
@@ -202,7 +202,7 @@ var ProgressDashboardPlugin = class extends import_obsidian.Plugin {
       type: VIEW_TYPE_PROGRESS,
       active: true
     });
-    this.app.workspace.revealLeaf(leaf);
+    void this.app.workspace.revealLeaf(leaf);
   }
 };
 var ProgressDashboardView = class extends import_obsidian.ItemView {
@@ -232,7 +232,7 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
       for (const fn of cleanup) {
         try {
           fn();
-        } catch (e) {
+        } catch (_e) {
         }
       }
       this.plugin.viewCleanup = [];
@@ -511,7 +511,7 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
         return;
       isDragging = false;
       if (rafId !== null) {
-        cancelAnimationFrame(rafId);
+        window.cancelAnimationFrame(rafId);
         rafId = null;
       }
       const newProgress = updateUI(e.clientX);
@@ -524,7 +524,7 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
       document.removeEventListener("mouseup", onUp, true);
       const id = rafId;
       if (id !== null)
-        cancelAnimationFrame(id);
+        window.cancelAnimationFrame(id);
     };
     this.plugin.viewCleanup.push(cleanup);
     const colNotes = row.createDiv("pd-col-notes");
@@ -618,18 +618,6 @@ var ProgressDashboardView = class extends import_obsidian.ItemView {
             if (exists) {
               new import_obsidian.Notice("子技能已存在：" + childName);
             } else {
-              const newChild = {
-                name: childName,
-                desc: "",
-                category: entry.category,
-                progress: 0,
-                manualProgress: null,
-                noteProgress: null,
-                files: [],
-                hasNote: false,
-                parentName: entry.name,
-                children: []
-              };
               let cs = this.plugin.data.customSkills.find((s) => s.name === entry.name);
               if (cs) {
                 const existingChildren = parseChildren(cs.desc) || [];
